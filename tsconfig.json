@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["./*"],
+      "@config/*": ["./config/*"],
+      "@constants/*": ["./constants/*"],
+      "@middlewares/*": ["./middlewares/*"],
+      "@utils/*": ["./utils/*"],
+      "@modules/*": ["./modules/*"],
+      "@auth/*": ["./modules/auth/*"],
+      "@audit/*": ["./modules/audit/*"],
+      "@user/*": ["./modules/user/*"],
+      "@coupon/*": ["./modules/coupon/*"],
+      "@referral/*": ["./modules/referral/*"],
+      "@dashboard/*": ["./modules/dashboard/*"],
+      "@notification/*": ["./modules/notification/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+}

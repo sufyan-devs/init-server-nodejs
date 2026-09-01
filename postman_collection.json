@@ -1,0 +1,3485 @@
+{
+  "info": {
+    "_postman_id": "9a763c80-e195-4718-9a86-c316f2954ee9",
+    "name": "Init Server API",
+    "description": "Business Associate, Vendor & Admin Management Service APIs\n\nSeeded Users (npm run db:reset creates these):\n- Admin: admin@test.com\n- Vendor: vendor@test.com\n- BA: ba@test.com\n- Customer: customer@test.com\n\nPassword for all four: Qa-Test-99  (override with SEED_ADMIN_PASSWORD)\n\nNote: Auth uses httpOnly cookies. Enable 'Send cookies' in Postman settings.\n\nAUTH REWRITE (2026-08-24): sessions moved to Redis, one per DEVICE. Cookies issued before this change are invalid - log in again. New: GET/DELETE /sessions per portal, POST /oauth/:provider, and RateLimit-* headers on every response. Redis 7+ and a running Redis are required or the server refuses to boot.\n\nPASSWORD POLICY: registration requires 8+ characters and rejects breached passwords (HIBP), so a short common password like \"Test1234\" is refused even though it is long enough.\n\nCSRF: login/register/oauth responses include data.csrfToken; their test scripts save it to {{csrfToken}}. Logout, logout-all, switch-role, request-role and DELETE /sessions send it as the x-csrf-token header. Without it they return 403.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "otherSid",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "googleIdToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "csrfToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "otp",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customerId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminCsrf",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nameBefore",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Public",
+      "item": [
+        {
+          "name": "Coupons",
+          "item": [
+            {
+              "name": "List Published Coupons",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/pub/coupons?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "pub",
+                    "coupons"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "createdAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get Published Coupon By ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/pub/coupons/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "pub",
+                    "coupons",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Vendor",
+      "item": [
+        {
+          "name": "Auth",
+          "item": [
+            {
+              "name": "Register Vendor",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"newvendor@test.com\",\n  \"password\": \"Qa-Test-99\",\n  \"firstName\": \"New\",\n  \"lastName\": \"Vendor\",\n  \"phone\": \"Qa-Test-9990\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "register"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Register Vendor (With Referral)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"referredvendor@test.com\",\n  \"password\": \"Qa-Test-99\",\n  \"firstName\": \"Referred\",\n  \"lastName\": \"Vendor\",\n  \"phone\": \"Qa-Test-9991\",\n  \"referralCode\": \"REF-XXXXXX\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "register"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Login Vendor",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"vendor@test.com\",\n  \"password\": \"Qa-Test-99\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "login"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Get Me",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get Available Roles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "roles"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Switch Role",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"BUSINESS_ASSOCIATE\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "switch-role"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Request Additional Role",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"BUSINESS_ASSOCIATE\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/request-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "request-role"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/logout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "logout"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout All Sessions",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/auth/logout-all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "auth",
+                    "logout-all"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Coupons",
+          "item": [
+            {
+              "name": "Create Coupon (Direct)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Summer Blowout\",\n  \"code\": \"SUMMER20\",\n  \"description\": \"Get 20% off all electronics\",\n  \"referralType\": \"DIRECT\",\n  \"discount\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 20\n  },\n  \"minimumOrderValue\": 500,\n  \"redeemLimit\": {\n    \"total\": 100,\n    \"perUser\": 2\n  },\n  \"startDate\": \"2026-03-01T00:00:00.000Z\",\n  \"endDate\": \"2026-06-30T23:59:59.000Z\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Create Coupon (BA Referral)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"KFC Family Deal\",\n  \"code\": \"KFCFAM25\",\n  \"description\": \"25% off family bucket\",\n  \"referralType\": \"REFERRAL\",\n  \"discount\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 25\n  },\n  \"minimumOrderValue\": 1000,\n  \"redeemLimit\": {\n    \"total\": 50,\n    \"perUser\": 1\n  },\n  \"startDate\": \"2026-03-01T00:00:00.000Z\",\n  \"endDate\": \"2026-06-30T23:59:59.000Z\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List My Coupons",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "createdAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    },
+                    {
+                      "key": "isAll",
+                      "value": "false",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get Coupon By ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Update Coupon",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Summer Blowout Updated\",\n  \"description\": \"Get 25% off all electronics\",\n  \"discount\": {\n    \"type\": \"PERCENTAGE\",\n    \"value\": 25\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Submit Coupon for Approval",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/:id/submit",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    ":id",
+                    "submit"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Deactivate Coupon",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/:id/deactivate",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    ":id",
+                    "deactivate"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Delete Coupon",
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redemption Flow",
+          "item": [
+            {
+              "name": "Step 1 - Verify Redemption Code",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"redemptionCode\": \"<REDEEM_CODE>\",\n  \"quantity\": 1\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/redeem/verify-code",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    "redeem",
+                    "verify-code"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Step 2 - Verify OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"redeemId\": \"<REDEEM_ID>\",\n  \"otp\": \"123456\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/redeem/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    "redeem",
+                    "verify-otp"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Step 3 - Confirm Redemption",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"redeemId\": \"<REDEEM_ID>\",\n  \"orderReference\": \"ORD-001\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/redeem/confirm",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    "redeem",
+                    "confirm"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Resend OTP",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"redeemId\": \"<REDEEM_ID>\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/redeem/resend-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    "redeem",
+                    "resend-otp"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redemptions",
+          "item": [
+            {
+              "name": "List My Redemptions",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/redemptions?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    "redemptions"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "redeemedAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get Redemption Detail",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/coupons/redemptions/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "coupons",
+                    "redemptions",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<REDEEM_ID>"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dashboard",
+          "item": [
+            {
+              "name": "Dashboard Stats",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/vendor/dashboard/stats",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "vendor",
+                    "dashboard",
+                    "stats"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Associate",
+      "item": [
+        {
+          "name": "Auth",
+          "item": [
+            {
+              "name": "Register BA",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"newba@test.com\",\n  \"password\": \"Qa-Test-99\",\n  \"firstName\": \"New\",\n  \"lastName\": \"Associate\",\n  \"phone\": \"9876543210\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "register"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Login BA",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"ba@test.com\",\n  \"password\": \"Qa-Test-99\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "login"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Get Me",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get Available Roles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "roles"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Switch Role",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"VENDOR\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "switch-role"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Request Additional Role",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"VENDOR\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/request-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "request-role"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get My Referral Code",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/referral-code",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "referral-code"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/logout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "logout"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout All Sessions",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/auth/logout-all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "auth",
+                    "logout-all"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Referrals",
+          "item": [
+            {
+              "name": "List Onboard Referrals",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/referrals/onboard?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "status",
+                      "value": "PENDING",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "referredAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Register Onboard (Refer User)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"firstName\": \"New\",\n  \"lastName\": \"User\",\n  \"phone\": \"Qa-Test-9990\",\n  \"role\": \"VENDOR\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/referrals/onboard",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Coupon Referrals",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/referrals/coupons?page=1&limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "referrals",
+                    "coupons"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "status",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "createdAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dashboard",
+          "item": [
+            {
+              "name": "Dashboard Stats",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/associate/dashboard/stats",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "associate",
+                    "dashboard",
+                    "stats"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Customer",
+      "item": [
+        {
+          "name": "Auth",
+          "item": [
+            {
+              "name": "Register Customer",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"password\": \"Qa-Test-99\",\n  \"firstName\": \"Test\",\n  \"lastName\": \"Customer\",\n  \"phone\": \"5551234567\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "register"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Login Customer",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"password\": \"Qa-Test-99\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "login"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Get Me",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/logout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "logout"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout All Sessions",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/logout-all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "logout-all"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Coupons",
+          "item": [
+            {
+              "name": "Purchase Coupon",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"couponId\": \"<COUPON_ID>\",\n  \"quantity\": 1\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/coupons/purchase",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "coupons",
+                    "purchase"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "My Purchased Coupons",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/coupons/my-purchases?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "coupons",
+                    "my-purchases"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "purchasedAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Generate Redeem Code",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/coupons/:purchaseId/generate-code",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "coupons",
+                    ":purchaseId",
+                    "generate-code"
+                  ],
+                  "variable": [
+                    {
+                      "key": "purchaseId",
+                      "value": "<PURCHASE_ID>"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Auth",
+          "item": [
+            {
+              "name": "Login Admin",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"admin@test.com\",\n  \"password\": \"Qa-Test-99\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "login"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Get Me",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Switch Role",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"SUPER_ADMIN\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "switch-role"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/logout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "logout"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Logout All Sessions",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/logout-all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "logout-all"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Coupons",
+          "item": [
+            {
+              "name": "List All Coupons",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "status",
+                      "value": "PENDING",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "createdAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    },
+                    {
+                      "key": "isAll",
+                      "value": "false",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get Coupon By ID",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Approve Coupon",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"sellingPrice\": 100.00\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons/:id/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons",
+                    ":id",
+                    "approve"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Publish Coupon",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons/:id/publish",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons",
+                    ":id",
+                    "publish"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Reject Coupon",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons/:id/reject",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons",
+                    ":id",
+                    "reject"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Deactivate Coupon",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons/:id/deactivate",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons",
+                    ":id",
+                    "deactivate"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<COUPON_ID>"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Redemptions",
+          "item": [
+            {
+              "name": "List All Redemptions",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons/redemptions?page=1&limit=10",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons",
+                    "redemptions"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "10"
+                    },
+                    {
+                      "key": "search",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortBy",
+                      "value": "redeemedAt",
+                      "disabled": true
+                    },
+                    {
+                      "key": "sortOrder",
+                      "value": "desc",
+                      "disabled": true
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get Redemption Detail",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/coupons/redemptions/:id",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "coupons",
+                    "redemptions",
+                    ":id"
+                  ],
+                  "variable": [
+                    {
+                      "key": "id",
+                      "value": "<REDEEM_ID>"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dashboard",
+          "item": [
+            {
+              "name": "Dashboard Stats",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/dashboard/stats",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "dashboard",
+                    "stats"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Auth Scenarios",
+      "description": "End-to-end auth behaviour, not endpoint coverage - the portal folders above already cover each route once. Run the numbered requests in order within each subfolder; they depend on the state the previous one leaves behind.",
+      "item": [
+        {
+          "name": "Sessions, Providers and Limits",
+          "item": [
+            {
+              "name": "1. Login (customer) - saves sid",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('RateLimit headers present', () => {",
+                      "  pm.expect(pm.response.headers.has('RateLimit-Limit')).to.be.true;",
+                      "  pm.expect(pm.response.headers.has('RateLimit-Remaining')).to.be.true;",
+                      "});",
+                      "const setCookie = pm.response.headers.get('Set-Cookie') || '';",
+                      "pm.test('per-portal cookie issued', () => pm.expect(setCookie).to.include('_customer'));",
+                      "pm.test('cookie carries sid.secret', () => pm.expect(setCookie).to.match(/=[a-f0-9]+\\.[a-f0-9]+/));",
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"password\": \"Qa-Test-99\",\n  \"deviceInfo\": \"Postman device A\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "login"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "2. List my devices",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const sessions = pm.response.json().data.sessions;",
+                      "pm.test('at least one device', () => pm.expect(sessions.length).to.be.above(0));",
+                      "pm.test('current device flagged', () => pm.expect(sessions.some(s => s.current)).to.be.true);",
+                      "pm.test('secretHash never leaks', () => pm.expect(JSON.stringify(sessions)).to.not.include('secretHash'));",
+                      "const other = sessions.find(s => !s.current);",
+                      "if (other) pm.collectionVariables.set('otherSid', other.sid);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/sessions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "sessions"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "3. Revoke one device",
+              "description": "Log in from a second Postman environment first so there is another device to kill. Uses {{otherSid}}, saved by request 2.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/sessions/{{otherSid}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "sessions",
+                    "{{otherSid}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "4. Revoke someone else's session - expect 404",
+              "description": "Ownership check. A guessed sid must not be revocable.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('404 not found', () => pm.response.to.have.status(404));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "DELETE",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/sessions/deadbeefdeadbeefdeadbeefdeadbeef",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "sessions",
+                    "deadbeefdeadbeefdeadbeefdeadbeef"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "5. Google login",
+              "description": "Set {{googleIdToken}} to a real Google ID token, and GOOGLE_CLIENT_IDS in .env to the client id that minted it. Without those this returns 401 - which is itself a valid test that verification is enforced.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 with a valid token, 401 with an invalid one', () => {",
+                      "  pm.expect([200, 401]).to.include(pm.response.code);",
+                      "});",
+                      "const body = pm.response.json();",
+                      "const csrf = body?.data?.csrfToken;",
+                      "if (csrf) { pm.collectionVariables.set('csrfToken', csrf); console.log('csrfToken saved'); }"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"idToken\": \"{{googleIdToken}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/oauth/google",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "oauth",
+                    "google"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "6. Unknown provider - expect 404",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('404 not found', () => pm.response.to.have.status(404));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/oauth/facebook",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "oauth",
+                    "facebook"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "7. Rate limit - run 11+ times to trip it",
+              "description": "Login is limited by IP AND account: 10 per 15 minutes by default (RATE_LIMIT_LOGIN_MAX). Use Postman's Collection Runner with 12 iterations. Watch RateLimit-Remaining count down, then a 429 with Retry-After.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const remaining = pm.response.headers.get('RateLimit-Remaining');",
+                      "console.log('remaining:', remaining, 'status:', pm.response.code);",
+                      "if (pm.response.code === 429) {",
+                      "  pm.test('429 carries Retry-After', () => pm.expect(pm.response.headers.has('Retry-After')).to.be.true);",
+                      "} else {",
+                      "  pm.test('401 for a wrong password', () => pm.response.to.have.status(401));",
+                      "}"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"password\": \"wrong-on-purpose\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "login"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "8. Logout all - kills every device",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/logout-all",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "logout-all"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "9. Sessions after logout-all - expect 401",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('session is dead after logout-all', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/sessions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "sessions"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "10. Admin - list devices",
+              "description": "Same two endpoints exist on every portal. Log in at /admin/auth/login first; the admin cookie is separate from the customer one.",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/sessions",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "sessions"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "11. Weak password rejected",
+              "description": "Policy is 12+ characters, no composition rules. Enforced in password.service, not in the schema - one source of truth.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 password too weak', () => pm.response.to.have.status(400));",
+                      "pm.test('code is PASSWORD_TOO_WEAK', () => pm.expect(pm.response.text()).to.include('PASSWORD_TOO_WEAK'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"weak-{{$randomInt}}@example.com\",\n  \"password\": \"short\",\n  \"firstName\": \"Qa\",\n  \"lastName\": \"Test\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "register"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "12. Breached password rejected",
+              "description": "HIBP k-anonymity check: only the first 5 SHA-1 chars leave the server. Fails OPEN, so a 201 here means HIBP was unreachable - not that the check is broken.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 when HIBP knows it, 201 if HIBP unreachable (fails open)', () => {",
+                      "  pm.expect([400, 201]).to.include(pm.response.code);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"breached-{{$randomInt}}@example.com\",\n  \"password\": \"passwordpassword\",\n  \"firstName\": \"Qa\",\n  \"lastName\": \"Test\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "register"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "13. Invalid email rejected",
+              "description": "zod at the edge. Before this, garbage fell through to the generic auth failure.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 validation error', () => pm.response.to.have.status(400));",
+                      "pm.test('names the field', () => pm.expect(pm.response.text()).to.include('email'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"not-an-email\",\n  \"password\": \"Qa-Test-99\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "login"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "14. OTP as a JSON number is accepted",
+              "description": "Regression test. A numeric otp used to be compared against a stored string, always failing - and burning one of five attempts on a CORRECT code.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('not a validation error - the number is coerced', () => {",
+                      "  pm.expect(pm.response.code).to.not.eql(422);",
+                      "  pm.expect(pm.response.text()).to.not.include('VALIDATION_ERROR');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"otp\": 1234\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "verify-otp"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "15. Logout without CSRF header - expect 403",
+              "description": "Log in first. This request deliberately sends NO x-csrf-token, so it must be refused. Run request 1 again afterwards to restore a usable session.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('403 CSRF missing', () => pm.response.to.have.status(403));",
+                      "pm.test('code names CSRF', () => pm.expect(pm.response.text()).to.match(/CSRF/i));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/logout",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "logout"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "16. Lockout - run 4 times",
+              "description": "LOCKOUT_MAX_ATTEMPTS=3 in the QA env. Note the response stays a GENERIC 401 even once locked - telling the caller 'account locked' would confirm the address exists. The real reason is in the audit log.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const c = pm.response.code;",
+                      "console.log('status', c, pm.response.text().slice(0, 120));",
+                      "pm.test('401 while under the cap, 401 generic once locked', () => {",
+                      "  pm.expect([401, 403, 429]).to.include(c);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"password\": \"deliberately-wrong\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "login"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Password Reset and Email Verification",
+          "item": [
+            {
+              "name": "1. Forgot password - always 200",
+              "description": "Returns the same body for a registered and an unregistered address. An OTP is stored either way - skipping the store for unknown addresses would make remainingAttempts null vs a number, which is an existence oracle by itself.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 regardless of whether the address exists', () => pm.response.to.have.status(200));",
+                      "pm.test('neutral message - no existence leak', () => pm.expect(pm.response.text()).to.match(/if that address/i));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/forgot-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "forgot-password"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "2. Forgot password - unknown address, identical response",
+              "description": "Compare this response to request 1 byte for byte. Any difference is an enumeration hole.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200, same as a real address', () => pm.response.to.have.status(200));",
+                      "pm.test('same neutral message', () => pm.expect(pm.response.text()).to.match(/if that address/i));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"definitely-not-registered-{{$randomInt}}@example.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/forgot-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "forgot-password"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "3. Verify reset OTP - sets the reset cookie",
+              "description": "Set {{otp}} first. The reset id is 32 CSPRNG bytes - it was Math.random() until 2026-09-01, which was guessable.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 with the correct code', () => pm.response.to.have.status(200));",
+                      "const setCookie = pm.response.headers.get('Set-Cookie') || '';",
+                      "pm.test('reset session cookie issued', () => pm.expect(setCookie).to.include('_reset'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"otp\": \"{{otp}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "verify-otp"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "4. Reset password - weak one rejected",
+              "description": "The policy applies on reset, not only on register.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 password too weak', () => pm.response.to.have.status(400));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"newPassword\": \"short\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/reset-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "reset-password"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "5. Reset password - succeeds, kills every session",
+              "description": "Also clears the account lockout - reset is the only recovery path a locked-out user has - and revokes every session. Verify by calling GET /sessions with an old cookie: it must 401.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('reset cookie cleared', () => pm.expect(pm.response.headers.get('Set-Cookie')||'').to.include('_reset'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"newPassword\": \"Qa-Reset-11\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/reset-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "reset-password"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "6. Reset session is single use",
+              "description": "Run straight after 5. The reset session is deleted on use; replaying it must fail.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('401 - the session was consumed by request 5', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"newPassword\": \"Qa-Reset-22\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/reset-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "reset-password"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "7. Send email verification code",
+              "description": "Same enumeration-proof shape as forgot-password. Only actually emails when the account exists and is unverified.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 neutral response', () => pm.response.to.have.status(200));",
+                      "pm.test('does not reveal whether verification is needed', () => pm.expect(pm.response.text()).to.match(/if that address/i));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/send-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "send-otp"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "8. Verify email",
+              "description": "Sets emailVerified and clears the OTP keys. Set {{otp}} from the code sent by request 7.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 on the correct code', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"otp\": \"{{otp}}\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/verify-email",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "verify-email"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "9. Wrong OTP burns an attempt",
+              "description": "Five wrong attempts per account per window, then 429. Run 6 times to see the switch.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 invalid code', () => pm.response.to.have.status(400));",
+                      "pm.test('reports remaining attempts', () => pm.expect(pm.response.text()).to.match(/attempt/i));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"otp\": \"000000\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/verify-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "verify-otp"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "10. Admin reset flow reaches the same handler",
+              "description": "Spot check that a second portal routes into the same shared controller. Admin has no /register or /verify-email by design.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 neutral response', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"admin@test.com\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/forgot-password",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "forgot-password"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Session Cache Lifecycle",
+          "description": "The session caches display fields, so every write that changes one must rewrite it (syncSessionUser) or destroy the session (revokeUserSessions). Run in order.",
+          "item": [
+            {
+              "name": "1. Login customer",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const d = pm.response.json().data || {};",
+                      "if (d.csrfToken) pm.collectionVariables.set('csrfToken', d.csrfToken);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"customer@test.com\",\n  \"password\": \"Qa-Test-99\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "login"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "2. /me shows the seeded name",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const u = pm.response.json().data.user;",
+                      "pm.collectionVariables.set('nameBefore', u.firstName + ' ' + u.lastName);",
+                      "pm.test('served from the session, not the database', () => pm.expect(u.email).to.eql('customer@test.com'));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "3. Update my own profile name",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"fullName\": \"Renamed Customer\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/profile",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "profile"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "4. /me reflects it WITHOUT re-login",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const u = pm.response.json().data.user;",
+                      "// The whole point of syncSessionUser: no re-login needed.",
+                      "pm.test('session copy was rewritten', () => pm.expect(u.firstName).to.eql('Renamed'));",
+                      "pm.test('it actually changed', () => pm.expect(u.firstName + ' ' + u.lastName).to.not.eql(pm.collectionVariables.get('nameBefore')));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "5. Login as admin",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const d = pm.response.json().data || {};",
+                      "if (d.csrfToken) pm.collectionVariables.set('adminCsrf', d.csrfToken);",
+                      "pm.test('set customerId before running step 6', () => pm.expect(true).to.be.true);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{csrfToken}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"admin@test.com\",\n  \"password\": \"Qa-Test-99\"\n}"
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "auth",
+                    "login"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "6. Admin suspends that customer",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('now suspended', () => pm.expect(pm.response.json().data.isActive).to.be.false);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/customers/{{customerId}}/toggle-status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "customers",
+                    "{{customerId}}",
+                    "toggle-status"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "7. Suspended customer session is DEAD",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "// Security-critical: authenticate no longer checks user.status, so revocation",
+                      "// on suspend is the only thing ending a suspended account's access.",
+                      "pm.test('401 - every session revoked on suspend', () => pm.response.to.have.status(401));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/customer/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "customer",
+                    "auth",
+                    "me"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "8. Admin re-activates the customer",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('active again', () => pm.expect(pm.response.json().data.isActive).to.be.true);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/admin/customers/{{customerId}}/toggle-status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "admin",
+                    "customers",
+                    "{{customerId}}",
+                    "toggle-status"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

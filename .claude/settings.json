@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run type-check)",
+      "Bash(npm run lint:fix)",
+      "Bash(npm ls:*)",
+      "Bash(npm audit:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(wc:*)"
+    ],
+    "ask": [
+      "Bash(npm run dev)",
+      "Bash(npm run build)",
+      "Bash(npx prisma migrate:*)",
+      "Bash(npx prisma db push:*)",
+      "Bash(npm run seed:*)",
+      "Bash(npm install:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)",
+      "Bash(npx prisma generate)",
+      "Bash(npx prisma validate)",
+      "Bash(npx prisma format)"
+    ],
+    "deny": [
+      "Read(.env.local)",
+      "Read(.env.prod)",
+      "Read(.env.*.local)",
+      "Bash(npx prisma migrate reset:*)",
+      "Bash(git push --force:*)"
+    ]
+  }
+}

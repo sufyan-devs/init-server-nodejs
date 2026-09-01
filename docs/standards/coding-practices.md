@@ -1,0 +1,513 @@
+# Coding Practices
+
+> **Companion to [project-structure.md](project-structure.md).**
+> That file says *where code goes*. This file says *how to write the code itself* —
+> so it stays **easy to read, easy to debug, scalable, and free of duplication**.
+>
+> Read it once, then keep it open while coding. Every rule has a ❌ bad / ✅ good
+> example pulled from real patterns in this codebase.
+
+---
+
+## The 10 Principles (the whole file in one screen)
+
+1. **Don't Repeat Yourself (DRY)** — write a thing once, import it everywhere.
+2. **One function = one job** — small, named, testable.
+3. **Encapsulate** — hide *how*, expose *what* (the front-door rule).
+4. **Reuse before you write** — check `utils/` and `services/` first.
+5. **Name for intent** — code reads like a sentence; comments explain *why*, not *what*.
+6. **Fail loud, fail early** — validate at the edge, throw typed errors.
+7. **No magic values** — constants, not scattered strings/numbers.
+8. **Pure where possible** — same input → same output; side-effects isolated.
+9. **Shallow & flat** — guard clauses over nested `if`; early `return`.
+10. **Debuggable by default** — structured logs, request IDs, clear error messages.
+
+---
+
+## 1. DRY — Don't Repeat Yourself
+
+If you copy-paste a block, stop — extract it.
+
+**Where extracted code lives (decide by what it is):**
+
+| The repeated thing is... | Put it in... |
+|--------------------------|--------------|
+| Pure helper, no business rules | `src/utils/` |
+| Business rule reused across roles | `modules/<domain>/services/` |
+| A fixed value (status, role, limit) | `src/constants/` or a model's `types.ts` |
+| Same DB query | a service method (or `repositories/` if SQL) |
+| Same response/error | `utils/response.ts` + `utils/apiError.ts` |
+
+**Real example — field stripping is duplicated today.**
+`coupon/controllers/vendor/index.ts` hand-deletes fields (`delete obj.sellingPrice`,
+`delete obj.userId`, ...), and several `schema.ts` files do their own `delete obj.__v`.
+That's the same idea written many times.
+
+```ts
+// ❌ duplicated in each controller / schema
+const obj = coupon.toJSON();
+delete obj.sellingPrice; delete obj.userId; delete obj.createdAt;
+```
+
+```ts
+// ✅ one reusable shaper, imported wherever needed
+// utils/sanitize.ts
+export const omit = <T extends object>(obj: T, keys: (keyof T)[]) => {
+  const clone = { ...obj };
+  for (const k of keys) delete clone[k];
+  return clone;
+};
+// usage
+const vendorView = omit(coupon.toJSON(), ['sellingPrice', 'userId', 'createdAt']);
+```
+
+> **Rule of three:** the *first* time write it inline. The *second* time, note the
+> duplication. The *third* time, extract it. (Don't over-abstract on day one either.)
+
+---
+
+## 2. One Function, One Job
+
+A function should do *one* thing and be nameable without "and".
+
+```ts
+// ❌ createAndValidateAndNotifyCoupon — three jobs, untestable
+const create = async (req, res) => { /* validate + save + email, 80 lines */ };
+```
+
+```ts
+// ✅ each job named and separate (validator → service → event)
+const create = catchAsync(async (req, res) => {
+  const coupon = await couponService.createForVendor(req.user.id, req.body);
+  return response.created(res, coupon);
+});
+```
+
+- Aim for functions short enough to read without scrolling.
+- If you need "and" to describe it, split it.
+- A long function isn't a sin — a function doing *unrelated* things is.
+
+---
+
+## 3. Encapsulation — hide the *how*, expose the *what*
+
+Callers should use a clean front door and never reach into internals.
+
+**This codebase already does this with barrel `index.ts` files:**
+
+```ts
+// models/Coupon/index.ts — the front door
+export { default } from './schema';
+export * from './types';
+```
+
+```ts
+// ✅ callers import the front door, not internal files
+import Coupon, { COUPON_STATUS } from '@coupon/models/Coupon';
+
+// ❌ never reach past it into internals
+import Coupon from '@coupon/models/Coupon/schema';
+```
+
+**Apply the same to services & utils:** export only what's meant to be used. Keep
+helper functions module-private (don't `export` them) unless another file needs them.
+
+```ts
+// service file
+const buildReferralBlock = (coupon) => { ... };   // private — no export
+export const createForVendor = (...) => { ... };  // public API only
+```
+
+---
+
+## 4. Reuse Before You Write
+
+Before writing a helper, **search `utils/` first** — it may already exist. This repo
+already has a strong toolbox; use it instead of re-inventing:
+
+| Need | Use (already exists) |
+|------|----------------------|
+| Validate / convert an ObjectId | `toObjectId`, `isValidObjectId` (`@utils/mongoHelper`) |
+| Money fields | `priceField`, `getDecimal`, `couponDecimalFields` |
+| Date range / formatting | `todayDateRange`, `formatDate` |
+| Send a response | `response.success/created/error/notFound` |
+| Throw an error | `ApiError.badRequest/notFound/...` |
+| Async error wrapping | `catchAsync` |
+| Redis get/set/del with TTL | `setKey/getKey/delKey` (`@utils/redisKeys`) |
+| Logging | `logger` (`@utils/logger`) |
+
+> **Rule:** a new `utils/` helper must be **pure** (no business logic, no req/res).
+> If it knows about "coupons" or "vendors", it belongs in a **service**, not utils.
+
+---
+
+## 5. No Magic Values
+
+Every fixed string/number gets a name. This repo's pattern: `UPPER_SNAKE` objects
+`as const` in the model's `types.ts`.
+
+```ts
+// ❌ magic strings — typo-prone, un-searchable
+if (coupon.status === 'PUBLISHED') { ... }
+
+// ✅ named constant (already the convention here)
+import { COUPON_STATUS } from '@coupon/models/Coupon';
+if (coupon.status === COUPON_STATUS.PUBLISHED) { ... }
+```
+
+Benefits: autocomplete, one place to change, the compiler catches typos.
+
+---
+
+## 6. Fail Loud, Fail Early (debuggability)
+
+Validate at the **edge**, throw a **typed** error, let the central handler format it.
+
+```ts
+// ✅ guard clauses at the top, then the happy path runs flat
+const submit = async (id: string) => {
+  if (!isValidObjectId(id)) throw ApiError.badRequest('Invalid id', 'BAD_ID');
+  const coupon = await Coupon.findById(id);
+  if (!coupon) throw ApiError.notFound('Coupon not found', 'COUPON_404');
+  if (coupon.status !== COUPON_STATUS.DRAFT)
+    throw ApiError.badRequest('Only DRAFT can be submitted', 'BAD_STATE');
+  // ...happy path, no nesting
+};
+```
+
+**Rules:**
+- Always give errors a `code` — the frontend branches on codes, not on message text.
+- Never swallow errors silently (`catch {}`); log with context or rethrow.
+- Don't `res.status(500)` by hand — `throw` and let `errorMiddleware` decide.
+
+---
+
+## 7. Shallow & Flat — guard clauses over nesting
+
+```ts
+// ❌ arrow-shaped pyramid
+if (user) {
+  if (user.active) {
+    if (coupon) {
+      // do work
+    }
+  }
+}
+```
+
+```ts
+// ✅ exit early, keep the main logic at the left margin
+if (!user) throw ApiError.unauthorized();
+if (!user.active) throw ApiError.forbidden('Inactive user');
+if (!coupon) throw ApiError.notFound('Coupon not found');
+// do work — flat and readable
+```
+
+Max ~2–3 levels of indentation inside a function. Deeper = extract a function.
+
+---
+
+## 8. Naming for Intent
+
+Code is read 10× more than written. Optimize for the reader.
+
+| Kind | Convention | Example |
+|------|------------|---------|
+| Functions = verbs | `camelCase`, action-first | `createForVendor`, `assertPurchasable` |
+| Booleans = questions | `is/has/can` | `isDeleted`, `hasReferral`, `canRedeem` |
+| Variables = nouns | descriptive, no abbreviations | `pendingCoupons`, not `pc` |
+| Constants | `UPPER_SNAKE` | `COUPON_STATUS`, `ROLE_CODE` |
+| Async returns | reads naturally | `const coupon = await findCoupon(id)` |
+
+```ts
+// ❌ what is d? what is the 2?
+const d = await c.find({ s: 2 });
+
+// ✅ self-documenting — no comment needed
+const pendingCoupons = await Coupon.find({ status: COUPON_STATUS.PENDING });
+```
+
+**Comments explain WHY, not WHAT.** If a comment restates the code, delete it and
+rename instead.
+
+```ts
+// ❌ noise
+i++; // increment i
+
+// ✅ explains a non-obvious decision
+// Percentage discounts are capped at 100 by business rule, enforced in schema too.
+```
+
+---
+
+## 9. Pure Functions & Isolated Side-Effects
+
+Keep calculation separate from I/O. Pure functions (same input → same output, no DB,
+no network) are trivial to test and reuse.
+
+```ts
+// ✅ pure — computable, testable, reusable
+export const finalPrice = (base: number, discount: Discount): number =>
+  discount.type === DISCOUNT_TYPE.PERCENTAGE
+    ? base * (1 - discount.value / 100)
+    : base - discount.value;
+
+// side-effects (DB, email, redis) stay in services, called explicitly
+const coupon = await couponRepo.create(data);   // I/O isolated in the repo/service
+```
+
+**Rule:** a function that *both* calculates *and* hits the DB is two functions.
+
+---
+
+## 10. Consistency Beats Cleverness
+
+The whole point of these files is that **every module looks the same**. A clever
+one-off that breaks the pattern costs more than it saves.
+
+- Match the surrounding file's style, naming, and structure.
+- New endpoint? Copy an existing one as the template, then change the logic.
+- `npm run lint:fix` + `type-check` before every commit — the tools settle style
+  arguments so humans don't.
+
+---
+
+## 11. JavaScript Primitives — pick the right type
+
+JS has **7 primitives**: `string`, `number`, `boolean`, `null`, `undefined`,
+`bigint`, `symbol` (everything else is an `object`, including arrays). Most bugs come
+from using the wrong one or mixing them.
+
+| Primitive | Use for | Don't abuse it for |
+|-----------|---------|--------------------|
+| `string` | text, ids, codes, enums-as-text | numbers you'll do math on |
+| `number` | counts, math (64-bit float) | money (precision loss) → use Decimal |
+| `boolean` | true/false flags | tri-state ("yes"/"no"/"maybe") → use an enum |
+| `null` | "intentionally empty" (set by you) | "not provided" → that's `undefined` |
+| `undefined` | "missing / never set" (default) | don't assign it manually; let it be the default |
+| `bigint` | integers beyond 2^53 (rare) | normal counts |
+| `symbol` | unique keys (rare, library-level) | everyday code |
+
+```ts
+// ❌ a number forced into a string, a flag as a string
+const total = "5";  if (total > 3) { ... }   // string compare — lands you in bug city
+const active = "true";                        // a string that's ALWAYS truthy
+
+// ✅ right primitive for the job
+const total = 5;            // number for math
+const active = true;        // real boolean
+```
+
+> **Rule:** keep a value's type stable. A variable that is sometimes a `number` and
+> sometimes a `string` ("stringly typed") is the root of countless bugs. TypeScript
+> helps — type it once and let the compiler enforce it.
+
+---
+
+## 12. Booleans — store true booleans, not `1`/`0`/`"yes"`
+
+A flag is `true`/`false`. Don't encode it as `1/0`, `"Y"/"N"`, or `"true"/"false"`.
+
+```ts
+// ❌ integer/string flags — every reader must remember the encoding
+user.verified = 1;
+if (user.verified === 1) { ... }
+coupon.active = "yes";
+
+// ✅ real boolean — self-explanatory, no decoding
+user.verified = true;
+if (user.verified) { ... }                    // not `=== true` — see §13
+```
+
+**But for more than two states, a boolean is the wrong tool — use an enum.** This repo
+already does this well: a coupon isn't `isActive` + `isPending` + `isSold` (three
+booleans that can contradict each other) — it's one `status` with named values:
+
+```ts
+// ✅ one source of truth, can't be in two states at once
+import { COUPON_STATUS } from '@coupon/models/Coupon';
+if (coupon.status === COUPON_STATUS.PUBLISHED) { ... }
+```
+
+> **Smell:** two or more booleans that are never true together → replace with one enum.
+> **Note on DBs:** some columns *store* `0/1` or `'Y'/'N'`. Convert at the boundary
+> (model/mapper) so the rest of your code only ever sees a real `boolean`.
+
+---
+
+## 13. Comparisons — `===`, truthiness, and the `== null` exception
+
+### Always `===` / `!==` (never `==` / `!=`)
+
+`==` does type coercion with surprising results (`0 == ''`, `'' == false`,
+`1 == '1'` are all `true`). Use strict equality everywhere.
+
+```ts
+// ❌ loose — coerces types, hides bugs
+if (count == '0') { ... }
+
+// ✅ strict — compares value AND type
+if (count === 0) { ... }
+```
+
+### The ONE allowed loose check: `== null`
+
+`x == null` is the idiomatic way to test "null **or** undefined" in one shot — the
+only `==` worth keeping.
+
+```ts
+// ✅ true for BOTH null and undefined (this repo uses this pattern already)
+if (redeemLimit?.total != null && redeemLimit?.perUser != null) { ... }
+
+// equivalent but verbose:
+if (total !== null && total !== undefined) { ... }
+```
+
+### null vs undefined — check the one you mean
+
+- `undefined` = "was never set / not provided" (default, missing keys, missing args).
+- `null` = "explicitly empty" (you, or the DB, set it to nothing on purpose).
+
+```ts
+obj.value ?? 'fallback'      // ?? triggers ONLY on null/undefined  ← usually what you want
+obj.value || 'fallback'      // || triggers on ALL falsy: 0, '', false too  ← often a BUG
+obj?.nested?.field           // optional chaining — safe access, no "cannot read of undefined"
+```
+
+### Truthiness traps — `0`, `''`, `NaN`, `false` are all falsy
+
+`if (x)` is fine for genuine yes/no, but **dangerous when `0` or `''` are valid values.**
+
+```ts
+// ❌ a valid quantity of 0 is treated as "missing"
+if (!coupon.minimumOrderValue) applyDefault();      // 0 is falsy → wrong branch!
+
+// ✅ say exactly what you mean
+if (coupon.minimumOrderValue == null) applyDefault(); // only null/undefined trigger it
+```
+
+> **Rule:** for "does this value exist?", check `== null`. Reserve bare `if (x)` for
+> values that are *truly* boolean-ish.
+
+---
+
+## 14. Don't Repeat the Same Comparison — name it or table it
+
+If you compare the same value against several options, or repeat a condition, extract
+it. This is DRY (§1) applied to logic.
+
+### Repeated `||` against the same field → `includes` / `Set`
+
+```ts
+// ❌ same variable compared over and over
+if (role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'STAFF') { ... }
+
+// ✅ one readable membership check
+const STAFF_ROLES = [ROLE_CODE.ADMIN, ROLE_CODE.SUPER_ADMIN, ROLE_CODE.STAFF];
+if (STAFF_ROLES.includes(role)) { ... }
+// for hot paths / big lists, a Set gives O(1): new Set([...]).has(role)
+```
+
+### A compound condition used twice → name it once
+
+```ts
+// ❌ same logic duplicated — change one, forget the other
+if (coupon.status === 'PUBLISHED' && coupon.endDate > now) renderBuyButton();
+// ...later...
+if (coupon.status === 'PUBLISHED' && coupon.endDate > now) trackImpression();
+
+// ✅ name the concept once (reads like a sentence, single point of change)
+const isPurchasable = coupon.status === COUPON_STATUS.PUBLISHED && coupon.endDate > now;
+if (isPurchasable) renderBuyButton();
+if (isPurchasable) trackImpression();
+```
+
+> Better still, put `isPurchasable` on the model/service as a method so *every* caller
+> shares one definition (encapsulation, §3).
+
+---
+
+## 15. Control Flow — `if` vs `switch` vs ternary vs lookup map
+
+Pick the structure that makes intent clearest. Rough guide:
+
+| Situation | Use | Why |
+|-----------|-----|-----|
+| 1–2 conditions, or guard clauses | `if` / early `return` | simplest, flattest |
+| One value → one of a few **discrete** cases | `switch` (or a map) | clearer than an `if/else` ladder |
+| Map a key → a value/handler | **lookup object/Map** | no branching at all, easy to extend |
+| Pick between **two** values inline | ternary `a ? b : c` | concise for simple assignment |
+
+### Guard clauses beat nested `if` (recap of §7)
+```ts
+if (!user) throw ApiError.unauthorized();
+if (!coupon) throw ApiError.notFound();
+// happy path, flat
+```
+
+### `switch` over a long `if/else` ladder on the same variable
+```ts
+// ❌ ladder repeating `status ===`
+if (status === 'DRAFT') ...
+else if (status === 'PENDING') ...
+else if (status === 'PUBLISHED') ...
+
+// ✅ switch — the variable is stated once
+switch (status) {
+  case COUPON_STATUS.DRAFT:     return handleDraft();
+  case COUPON_STATUS.PENDING:   return handlePending();
+  case COUPON_STATUS.PUBLISHED: return handlePublished();
+  default:                      throw ApiError.badRequest(`Unknown status: ${status}`);
+}
+```
+> Always include a `default`. In a `switch`, every `case` should `return`/`break` —
+> accidental fall-through is a classic bug (your ESLint rule `noFallthroughCasesInSwitch` guards this).
+
+### Best for "key → value/handler": a lookup map (no branching)
+```ts
+// ✅ data instead of control flow — trivial to extend, no if/switch growth
+const NEXT_STATUS = {
+  [COUPON_STATUS.DRAFT]:    COUPON_STATUS.PENDING,
+  [COUPON_STATUS.PENDING]:  COUPON_STATUS.APPROVED,
+  [COUPON_STATUS.APPROVED]: COUPON_STATUS.PUBLISHED,
+};
+const next = NEXT_STATUS[current] ?? throwInvalid(current);
+```
+
+### Ternary — only for simple value selection, never nested
+```ts
+// ✅ fine
+const label = isActive ? 'Active' : 'Inactive';
+
+// ❌ nested ternary — unreadable; use if/switch/map instead
+const x = a ? b ? c : d : e ? f : g;
+```
+
+---
+
+## Pre-Commit Checklist (run through this before pushing)
+
+- [ ] No copy-pasted block — duplication extracted to util/service/constant.
+- [ ] Each function does one nameable job; no "and" in the name.
+- [ ] Imported from front-door `index.ts`, not internal files.
+- [ ] Reused existing `utils/` helpers instead of rewriting.
+- [ ] No magic strings/numbers — used a named constant.
+- [ ] Validated input at the edge; errors thrown via `ApiError` with a `code`.
+- [ ] Guard clauses, not nested pyramids (≤ 3 indent levels).
+- [ ] Names read like intent; comments say *why*, not *what*.
+- [ ] Calculation separated from DB/network side-effects.
+- [ ] Right primitive for each value; types stay stable (no "stringly typed").
+- [ ] Real `boolean` flags (not `1/0`/`"yes"`); >2 states use an enum, not many booleans.
+- [ ] `===`/`!==` everywhere; only `== null` allowed (null-or-undefined check).
+- [ ] Used `??`/`?.` for null-safety; didn't use `||`/`if(x)` where `0`/`''` are valid.
+- [ ] No repeated comparison — extracted to a named boolean, `includes`, or a map.
+- [ ] Right control flow: guard `if` / `switch` (with `default`) / lookup map / simple ternary.
+- [ ] `lint:fix` and `type-check` pass.
+
+---
+
+## One-Sentence Summary
+
+> **Write each thing once, name it for what it does, hide its internals behind a
+> front door, validate and fail early, and keep calculation separate from I/O — so
+> any teammate can read, debug, and extend it without surprises.**
