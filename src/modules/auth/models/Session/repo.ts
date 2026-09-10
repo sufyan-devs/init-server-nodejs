@@ -10,7 +10,6 @@ import {
   addToSet,
   removeFromSet,
   getSetMembers,
-  getManyKeys,
 } from '@utils/redisKeys';
 import { logger } from '@utils/logger';
 import type { SessionRecord, SessionRepo } from './types';
@@ -54,12 +53,12 @@ const extendAtLeast = async (key: string, ttlSeconds: number): Promise<void> => 
   if (current < ttlSeconds) await expireKey(key, ttlSeconds);
 };
 
-const readRawSessions = async (sids: string[]): Promise<(string | null)[]> => {
-  if (sids.length === 0) return [];
-  return getManyKeys(sids.map(sessionKey));
-};
+// Every Redis call in this file is single-key on purpose: a multi-key MGET or DEL needs
+// all keys in one hash slot, and sess:<sid> keys scatter across slots on a cluster.
+const readRawSessions = async (sids: string[]): Promise<(string | null)[]> =>
+  Promise.all(sids.map((sid) => getKey(sessionKey(sid))));
 
-// SMEMBERS then one MGET: the per-user SET is the index, so never a KEYS scan or a read per sid.
+// SMEMBERS first: the per-user SET is the index, so reading it never needs a KEYS scan.
 const readSessionIndex = async (userId: string): Promise<SessionIndex> => {
   const setKeyName = userSessionsKey(userId);
   const sids = await getSetMembers(setKeyName);
@@ -109,7 +108,7 @@ const listSidsByUser = async (userId: string): Promise<string[]> => {
 const deleteAllForUser = async (userId: string): Promise<void> => {
   const setKeyName = userSessionsKey(userId);
   const sids = await getSetMembers(setKeyName);
-  await delKey(...sids.map(sessionKey), setKeyName);
+  await Promise.all([...sids.map((sid) => delKey(sessionKey(sid))), delKey(setKeyName)]);
 };
 
 const refreshTtlIfStale = async (sid: string, ttlSeconds: number): Promise<void> => {
@@ -146,7 +145,7 @@ const pruneToLimit = async (userId: string, max: number): Promise<string[]> => {
       .slice(0, excess)
       .map((entry) => entry.sid);
 
-    await delKey(...evicted.map(sessionKey));
+    await Promise.all(evicted.map((sid) => delKey(sessionKey(sid))));
   }
 
   const deIndex = [...evicted, ...expired];

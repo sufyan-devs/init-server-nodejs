@@ -8,7 +8,7 @@ import sessionService, { toSessionUser } from '@auth/services/session.service';
 import { verifyPassword, assertPasswordAllowed, dummyVerify, hashPassword } from '@auth/services/password.service';
 import ApiError from '@utils/apiError';
 import AuthErrors from '@constants/authErrors';
-import { generateOTP, storeOTP } from '@utils/otp';
+import { generateOTP, storeOTP, OTP_PURPOSE } from '@auth/helpers/otp';
 import { sendEmail, templates } from '@notification/email';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 
@@ -145,7 +145,8 @@ const register = async (data: RegisterData, options: RegisterOptions = {}) => {
 
   if (needsEmailVerification && !skipEmailVerification) {
     const otp = generateOTP();
-    await storeOTP(normalizedEmail, otp, "verify_email");
+    const stored = await storeOTP(normalizedEmail, otp, OTP_PURPOSE.VERIFY_EMAIL);
+    if (!stored) throw ApiError.internal('Could not start email verification. Please try again.');
     const tpl = templates.emailVerificationOtp({
       firstName: `${firstName} ${lastName}`.trim(),
       otpCode: otp,

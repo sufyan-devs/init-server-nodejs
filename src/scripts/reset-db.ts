@@ -22,9 +22,7 @@ const reset = async (): Promise<void> => {
   console.warn(`flushed redis db ${envConfig.REDIS.DB}`);
   await redisClient.quit();
 
-  // execSync, not execFileSync: npm is npm.cmd on Windows so this needs a shell,
-  // and passing an args array through a shell is deprecated. The seed order lives
-  // in the npm script, not in a second copy here.
+  // execSync because npm is npm.cmd on Windows; the seed order lives in the npm script.
   execSync('npm run seed', { stdio: 'inherit' });
 
   console.warn('\nReset complete. Fresh database, empty Redis, roles and users seeded.');

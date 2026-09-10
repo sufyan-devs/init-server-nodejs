@@ -41,7 +41,10 @@ const issueCsrfToken = async (
     signed: false,
     secure: envConfig.SESSION.COOKIE.SECURE,
     sameSite: envConfig.SESSION.COOKIE.SAME_SITE,
-    maxAge: envConfig.SESSION.COOKIE.MAX_AGE_MS,
+    // The session cookie slides up to the absolute cap. If this one expired first the
+    // user would keep a live session that fails every write with 403, unrecoverably:
+    // a new CSRF cookie is only issued at login, and they are not logged out.
+    maxAge: envConfig.SESSION.ABSOLUTE_MAX_MS,
     path: '/',
     ...(envConfig.SESSION.COOKIE.DOMAIN ? { domain: envConfig.SESSION.COOKIE.DOMAIN } : {}),
   });

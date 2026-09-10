@@ -5,6 +5,7 @@ import ApiError from '@utils/apiError';
 interface RequestSchemas {
   body?: ZodType;
   params?: ZodType;
+  query?: ZodType;
 }
 
 const VALIDATION_CODE = 'VALIDATION_ERROR';
@@ -27,11 +28,12 @@ const replaceInPlace = (target: Record<string, unknown>, parsed: unknown): void 
   Object.assign(target, parsed);
 };
 
-const validate = ({ body, params }: RequestSchemas) => {
+const validate = ({ body, params, query }: RequestSchemas) => {
   return (req: Request, _res: Response, next: NextFunction): void => {
     try {
       if (body) req.body = parse(body, req.body);
       if (params) replaceInPlace(req.params as Record<string, unknown>, parse(params, req.params));
+      if (query) replaceInPlace(req.query as unknown as Record<string, unknown>, parse(query, req.query));
     } catch (error: unknown) {
       return next(error);
     }

@@ -1,9 +1,6 @@
-import { randomBytes } from 'node:crypto';
-import { setKey, getKey, delKey } from '@utils/redisKeys';
-import { generateOTP, checkSendRateLimit, storeOTP, verifyOTP, clearOTPKeys } from '@utils/otp';
+import { generateOTP, checkSendRateLimit, storeOTP, verifyOTP, clearOTPKeys, OTP_PURPOSE } from '@auth/helpers/otp';
 import { sendEmail, templates } from '@notification/email';
 import AuthErrors from '@constants/authErrors';
-import { envConfig } from '@config/env';
 import User, { USER_STATUS } from '@user/models/User';
 import {
   setSessionCookie,
@@ -11,6 +8,11 @@ import {
   getResetToken,
 } from '@utils/cookieHelper';
 import * as authHelper from './authHelper';
+import {
+  createResetSession,
+  readResetSession,
+  clearResetSession,
+} from '@auth/services/session.service';
 import { assertPasswordAllowed, hashPassword } from '@auth/services/password.service';
 import lockout from '@auth/services/lockout.service';
 import catchAsync from '@utils/catchAsync';
@@ -19,8 +21,7 @@ import ApiError from '@utils/apiError';
 import { normalizeEmail, formatWaitTime } from '@utils/format';
 import { logger } from '@utils/logger';
 
-const PURPOSE = "password_reset";
-const RESET_TTL_SECONDS = envConfig.PASSWORD_RESET.SESSION_EXPIRY_MINUTES * 60;
+const PURPOSE = OTP_PURPOSE.PASSWORD_RESET;
 
 export const forgotPassword = catchAsync(async (req, res) => {
   const { email } = req.body;
@@ -108,8 +109,7 @@ export const verifyResetOTP = catchAsync(async (req, res) => {
 
   let resetId: string;
   try {
-    resetId = randomBytes(32).toString('base64url');
-    await setKey(`reset_session:${resetId}`, normalized, RESET_TTL_SECONDS);
+    resetId = await createResetSession(normalized);
     setSessionCookie(res, resetId, 'RESET');
   } catch (err: unknown) {
     logger.error("passwordReset.verifyResetOTP failed to create redis session", {
@@ -139,14 +139,14 @@ export const resetPassword = catchAsync(async (req, res) => {
     return response.error(res, AuthErrors.INVALID_RESET_SESSION, 401);
   }
 
-  const storedEmail = await getKey(`reset_session:${resetSessionId}`);
+  const storedEmail = await readResetSession(resetSessionId);
   if (!storedEmail || storedEmail !== normalized) {
     return response.error(res, AuthErrors.INVALID_RESET_SESSION, 401);
   }
 
   await assertPasswordAllowed(newPassword);
 
-  await delKey(`reset_session:${resetSessionId}`);
+  await clearResetSession(resetSessionId);
   clearSessionCookie(res, 'RESET');
 
   const user = await User.findOne({ email: normalized, status: USER_STATUS.ACTIVE });

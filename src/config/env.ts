@@ -148,8 +148,7 @@ const requireSecret = (name: string, value: string | undefined): string => {
 /**
  * `min` defaults to 1 because almost every value here is a count or a duration
  * where zero is meaningless. Pass 0 only where zero is a real setting.
- * A bad value throws at boot rather than silently becoming the default, which is
- * what `parseInt(...) || fallback` did — it also made 0 unconfigurable.
+ * A bad value throws at boot rather than silently becoming the default.
  */
 const readInt = (name: string, fallback: number, min = 1): number => {
   const raw = process.env[name];

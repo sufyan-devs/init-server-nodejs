@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { redisClient, getIsConnected } from '@utils/redisClient';
 
 const assertConnected = (): void => {
@@ -8,10 +9,22 @@ const assertKey = (key: string): void => {
   if (!key || key.trim() === "") throw new Error("Redis key cannot be empty");
 };
 
+const IDENTIFIER_HASH_CHARS = 32;
+
+// A raw IPv6 address would split one segment into several (`:` is the delimiter), and
+// key names reach SLOWLOG and MONITOR far more readily than values do.
+export const identifierHash = (value: string): string =>
+  createHash('sha256').update(value.trim().toLowerCase()).digest('hex').slice(0, IDENTIFIER_HASH_CHARS);
+
 export const sessionKey = (sid: string): string => `sess:${sid}`;
 export const userSessionsKey = (userId: string): string => `user:${userId}:sessions`;
 export const loginFailKey = (userId: string): string => `login:fail:${userId}`;
 export const loginLockKey = (userId: string): string => `login:lock:${userId}`;
+
+export type RateLimitScope = 'ip' | 'acct';
+
+export const rateLimitKey = (bucket: string, scope: RateLimitScope, identifier: string): string =>
+  `rl:${bucket}:${scope}:${identifierHash(identifier)}`;
 
 export async function setKey(key: string, value: string, ttlSeconds?: number): Promise<void> {
   assertConnected();
@@ -62,7 +75,10 @@ export async function getTTL(key: string): Promise<number> {
 export async function expireKey(key: string, ttlSeconds: number): Promise<void> {
   assertConnected();
   assertKey(key);
-  if (ttlSeconds > 0) await redisClient.expire(key, ttlSeconds);
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    throw new Error(`Refusing to expire ${key}: TTL must be a positive number, got ${ttlSeconds}`);
+  }
+  await redisClient.expire(key, ttlSeconds);
 }
 
 export async function addToSet(key: string, ...members: string[]): Promise<void> {
@@ -85,17 +101,37 @@ export async function getSetMembers(key: string): Promise<string[]> {
   return await redisClient.sMembers(key);
 }
 
-export async function getManyKeys(keys: string[]): Promise<(string | null)[]> {
-  assertConnected();
-  if (keys.length === 0) return [];
-  keys.forEach(assertKey);
-  return await redisClient.mGet(keys);
-}
-
 export interface CounterHit {
   count: number;
   ttlSeconds: number;
 }
+
+const COMMANDS_PER_COUNTER = 3;
+
+// One MULTI per key: a multi-key MULTI is a CROSSSLOT error on a cluster. node-redis
+// flushes same-tick commands as one write, so one counter still costs one round trip.
+const incrementOne = async (key: string, ttlSeconds: number): Promise<CounterHit> => {
+  const batch = redisClient.multi();
+  batch.incr(key);
+  // NX, not a plain EXPIRE: an unconditional one renews the window on every hit, so a client
+  // hammering a blocked endpoint never unblocks. Requires Redis >= 7.0.
+  batch.expire(key, ttlSeconds, 'NX');
+  batch.ttl(key);
+  const replies = await batch.exec();
+
+  if (!replies || replies.length !== COMMANDS_PER_COUNTER) {
+    throw new Error(
+      `Redis pipeline returned ${replies ? replies.length : 'null'} replies for ${key}, expected ${COMMANDS_PER_COUNTER}`,
+    );
+  }
+
+  const count = Number(replies[0]);
+  const ttl = Number(replies[2]);
+  if (!Number.isFinite(count) || count < 1) {
+    throw new Error('Redis INCR returned a non-positive count; reading is unusable');
+  }
+  return { count, ttlSeconds: Number.isFinite(ttl) ? ttl : 0 };
+};
 
 export async function incrementWithTTL(
   keys: string[],
@@ -105,29 +141,5 @@ export async function incrementWithTTL(
   if (keys.length === 0) return [];
   keys.forEach(assertKey);
 
-  const batch = redisClient.multi();
-  for (const key of keys) {
-    batch.incr(key);
-    // NX, not a plain EXPIRE: an unconditional one renews the window on every hit, so a client
-    // hammering a blocked endpoint never unblocks. Requires Redis >= 7.0.
-    batch.expire(key, ttlSeconds, 'NX');
-    batch.ttl(key);
-  }
-  const replies = await batch.exec();
-
-  if (!replies || replies.length !== keys.length * 3) {
-    throw new Error(
-      `Redis pipeline returned ${replies ? replies.length : 'null'} replies for ${keys.length} counters`,
-    );
-  }
-
-  return keys.map((_key, index) => {
-    const base = index * 3;
-    const count = Number(replies[base]);
-    const ttl = Number(replies[base + 2]);
-    if (!Number.isFinite(count) || count < 1) {
-      throw new Error('Redis INCR returned a non-positive count; reading is unusable');
-    }
-    return { count, ttlSeconds: Number.isFinite(ttl) ? ttl : 0 };
-  });
+  return Promise.all(keys.map((key) => incrementOne(key, ttlSeconds)));
 }

@@ -1,16 +1,19 @@
 import { Router } from 'express';
-import * as profileController from '../../controllers/customer/profile';
+import { getProfile } from '../../controllers/customer/profile';
+import { updateProfile, uploadImage, deleteProfileImage } from '../../controllers/shared/profile';
 import { authenticate, authorizeRoles } from '@middlewares/authenticate';
 import { ROLE_CODE } from '@user/models/Role';
 import { uploadSingle } from '@user/helpers/upload';
+import { validate } from '@middlewares/validate';
+import { updateProfileSchema } from '@user/validators';
 
 const router = Router();
 
 const requireCustomer = [authenticate(ROLE_CODE.CUSTOMER), authorizeRoles(ROLE_CODE.CUSTOMER)];
 
-router.get('/', ...requireCustomer, profileController.getProfile);
-router.put('/', ...requireCustomer, profileController.updateProfile);
-router.post('/image', ...requireCustomer, uploadSingle('file'), profileController.uploadImage);
-router.delete('/image', ...requireCustomer, profileController.deleteProfileImage);
+router.get('/', ...requireCustomer, getProfile);
+router.put('/', ...requireCustomer, validate({ body: updateProfileSchema }), updateProfile);
+router.post('/image', ...requireCustomer, uploadSingle('file'), uploadImage);
+router.delete('/image', ...requireCustomer, deleteProfileImage);
 
 export default router;

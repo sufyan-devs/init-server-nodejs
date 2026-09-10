@@ -1,22 +1,17 @@
-import { createHash } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 import { envConfig, type EnvConfig } from '@config/env';
 import ApiError from '@utils/apiError';
 import AuthErrors from '@constants/authErrors';
 import { logger } from '@utils/logger';
-import { incrementWithTTL } from '@utils/redisKeys';
+import { incrementWithTTL, rateLimitKey } from '@utils/redisKeys';
+import type { RateLimitScope } from '@utils/redisKeys';
 
-const KEY_PREFIX = 'rl';
-const IP_SCOPE = 'ip';
-const ACCOUNT_SCOPE = 'acct';
+const IP_SCOPE: RateLimitScope = 'ip';
+const ACCOUNT_SCOPE: RateLimitScope = 'acct';
 
 const ACCOUNT_FIELD = 'email';
 
 const HTTP_TOO_MANY_REQUESTS = 429;
-
-const ACCOUNT_HASH_CHARS = 32;
-
-const MAX_ACCOUNT_INPUT_CHARS = 320;
 
 type RateLimitRule = EnvConfig['RATE_LIMIT']['GLOBAL'];
 
@@ -30,14 +25,19 @@ interface RateLimitOptions {
 
 type RateLimitMiddleware = (req: Request, res: Response, next: NextFunction) => Promise<void>;
 
+interface ScopedIdentifier {
+  scope: RateLimitScope;
+  value: string;
+}
+
 interface CounterReading {
-  identifier: string;
+  // Carried so a 429 log names something an operator can act on. The key holds only
+  // the hash, which is not reversible.
+  scope: RateLimitScope;
+  value: string;
   count: number;
   resetSeconds: number;
 }
-
-const rateLimitKey = (bucket: string, identifier: string): string =>
-  `${KEY_PREFIX}:${bucket}:${identifier}`;
 
 const clientIp = (req: Request): string => (req.ip ?? req.socket.remoteAddress ?? '').trim();
 
@@ -47,39 +47,31 @@ const defaultAccountKey = (req: Request): string | undefined => {
   return typeof value === 'string' ? value : undefined;
 };
 
-const accountIdentifier = (raw: string): string => {
-  const normalised = raw.trim().toLowerCase().slice(0, MAX_ACCOUNT_INPUT_CHARS);
-  if (normalised === '') return '';
-  const digest = createHash('sha256').update(normalised).digest('hex').slice(0, ACCOUNT_HASH_CHARS);
-  return `${ACCOUNT_SCOPE}:${digest}`;
-};
-
-const resolveIdentifiers = (req: Request, options: RateLimitOptions): string[] => {
-  const identifiers: string[] = [];
+const resolveIdentifiers = (req: Request, options: RateLimitOptions): ScopedIdentifier[] => {
+  const identifiers: ScopedIdentifier[] = [];
   const ip = clientIp(req);
-  const ipIdentifier = ip === '' ? '' : `${IP_SCOPE}:${ip}`;
 
-  if (ipIdentifier !== '') identifiers.push(ipIdentifier);
+  if (ip !== '') identifiers.push({ scope: IP_SCOPE, value: ip });
 
   if (options.by === 'ip') return identifiers;
 
-  const raw = defaultAccountKey(req);
-  const account = raw ? accountIdentifier(raw) : '';
-  if (account !== '') identifiers.push(account);
+  const account = defaultAccountKey(req)?.trim() ?? '';
+  if (account !== '') identifiers.push({ scope: ACCOUNT_SCOPE, value: account });
 
   return identifiers;
 };
 
 const hitCounters = async (
-  identifiers: string[],
+  identifiers: ScopedIdentifier[],
   bucket: string,
   rule: RateLimitRule,
 ): Promise<CounterReading[]> => {
-  const keys = identifiers.map((identifier) => rateLimitKey(bucket, identifier));
+  const keys = identifiers.map(({ scope, value }) => rateLimitKey(bucket, scope, value));
   const hits = await incrementWithTTL(keys, rule.WINDOW_SECONDS);
 
-  return identifiers.map((identifier, index) => ({
-    identifier,
+  return keys.map((_key, index) => ({
+    scope: identifiers[index].scope,
+    value: identifiers[index].value,
     count: hits[index].count,
     resetSeconds: hits[index].ttlSeconds > 0 ? hits[index].ttlSeconds : rule.WINDOW_SECONDS,
   }));
@@ -138,7 +130,8 @@ const rateLimit = (options: RateLimitOptions): RateLimitMiddleware => {
 
     logger.warn('Rate limit exceeded', {
       bucket,
-      identifier: binding.identifier,
+      scope: binding.scope,
+      identifier: binding.value,
       retryAfterSeconds: binding.resetSeconds,
       path: req.originalUrl,
     });

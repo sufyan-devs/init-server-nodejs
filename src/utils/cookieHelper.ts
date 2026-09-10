@@ -46,35 +46,50 @@ const clearSessionCookie = (res: Response, role?: string): void => {
   res.cookie(cookieName, '', { ...getCookieOptions(), maxAge: 0 });
 };
 
+// A cookie's Max-Age is fixed when written while the Redis TTL slides on use, so a
+// cookie stamped only at login expires under a user whose session is still alive.
+const refreshSessionCookie = (
+  res: Response,
+  cookieName: string,
+  token: string,
+  maxAgeMs: number,
+): void => {
+  if (maxAgeMs <= 0) return;
+  res.cookie(cookieName, token, { ...getCookieOptions(), maxAge: maxAgeMs });
+};
+
 interface SessionTokenResult {
   token: string;
   cookieName: string;
 }
 
+// Signed first: cookie-parser puts a verified cookie in signedCookies and leaves the
+// unverified original in cookies, so reading cookies first would accept a forged value.
+const readCookie = (req: Request, name: string): string | undefined =>
+  (req.signedCookies?.[name] ?? req.cookies?.[name]) as string | undefined;
+
 const getSessionToken = (req: Request, role?: string): SessionTokenResult | null => {
-  if (role) {
-    const name = getRoleCookieName(role);
-    if (req.signedCookies?.[name]) return { token: req.signedCookies[name] as string, cookieName: name };
-    if (req.cookies?.[name]) return { token: req.cookies[name] as string, cookieName: name };
-    return null;
-  }
+  const names = role ? [getRoleCookieName(role)] : [...ALL_SESSION_COOKIES, BASE_COOKIE_NAME];
 
-  for (const name of ALL_SESSION_COOKIES) {
-    if (req.signedCookies?.[name]) return { token: req.signedCookies[name] as string, cookieName: name };
-    if (req.cookies?.[name]) return { token: req.cookies[name] as string, cookieName: name };
+  for (const cookieName of names) {
+    const token = readCookie(req, cookieName);
+    if (token) return { token, cookieName };
   }
-  if (req.signedCookies?.[BASE_COOKIE_NAME]) return { token: req.signedCookies[BASE_COOKIE_NAME] as string, cookieName: BASE_COOKIE_NAME };
-  if (req.cookies?.[BASE_COOKIE_NAME]) return { token: req.cookies[BASE_COOKIE_NAME] as string, cookieName: BASE_COOKIE_NAME };
   return null;
 };
 
-const getResetToken = (req: Request): string | null => {
-  const name = ROLE_COOKIE_MAP.RESET;
-  if (req.signedCookies?.[name]) return req.signedCookies[name] as string;
-  if (req.cookies?.[name]) return req.cookies[name] as string;
-  return null;
-};
+const getResetToken = (req: Request): string | null =>
+  readCookie(req, ROLE_COOKIE_MAP.RESET) ?? null;
 
 const COOKIE_NAME = BASE_COOKIE_NAME;
 
-export { COOKIE_NAME, getRoleCookieName, getCookieOptions, setSessionCookie, clearSessionCookie, getSessionToken, getResetToken };
+export {
+  COOKIE_NAME,
+  getRoleCookieName,
+  getCookieOptions,
+  setSessionCookie,
+  refreshSessionCookie,
+  clearSessionCookie,
+  getSessionToken,
+  getResetToken,
+};

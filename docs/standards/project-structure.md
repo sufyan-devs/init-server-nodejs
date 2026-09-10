@@ -469,7 +469,6 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │   ├── cookieHelper.ts
 │   │   ├── logger.ts
 │   │   ├── mongoHelper.ts
-│   │   ├── otp.ts
 │   │   ├── redisClient.ts
 │   │   ├── redisKeys.ts
 │   │   └── response.ts

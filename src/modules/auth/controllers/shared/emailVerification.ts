@@ -1,6 +1,6 @@
 import ApiError from '@utils/apiError';
 import sessionService, { toSessionUser } from '@auth/services/session.service';
-import { generateOTP, checkSendRateLimit, storeOTP, verifyOTP, clearOTPKeys } from '@utils/otp';
+import { generateOTP, checkSendRateLimit, storeOTP, verifyOTP, clearOTPKeys, OTP_PURPOSE } from '@auth/helpers/otp';
 import { sendEmail, templates } from '@notification/email';
 import AuthErrors from '@constants/authErrors';
 import User, { USER_STATUS } from '@user/models/User';
@@ -9,7 +9,7 @@ import response from '@utils/response';
 import { normalizeEmail, formatWaitTime } from '@utils/format';
 import { logger } from '@utils/logger';
 
-const PURPOSE = "verify_email";
+const PURPOSE = OTP_PURPOSE.VERIFY_EMAIL;
 
 export const verifyEmailOTP = catchAsync(async (req, res) => {
   const { email, otp } = req.body;

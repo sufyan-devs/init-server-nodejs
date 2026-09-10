@@ -19,12 +19,17 @@ import { envConfig } from '@config/env';
 import AuthErrors from '@constants/authErrors';
 import ApiError from '@utils/apiError';
 import { logger } from '@utils/logger';
+import { setKey, getKey, delKey } from '@utils/redisKeys';
 
 const TOKEN_SEPARATOR = '.';
 const TOKEN_PART_COUNT = 2;
 const SID_BYTES = 16;
 const SECRET_BYTES = 32;
+const RESET_ID_BYTES = 32;
 const MS_PER_SECOND = 1000;
+const RESET_TTL_SECONDS = envConfig.PASSWORD_RESET.SESSION_EXPIRY_MINUTES * 60;
+
+const resetSessionKey = (resetId: string): string => `reset_session:${resetId}`;
 
 const randomBytesAsync = promisify(randomBytes);
 
@@ -78,6 +83,11 @@ const touchTtl = (session: SessionRecord): void => {
       logger.warn('Session TTL refresh failed', { sid: session.sid, error: errorMessage(error) });
     });
 };
+
+// The cookie must die exactly when the session does. Kept here, beside absoluteDeadline,
+// so the 30-day cap is expressed once rather than once per consumer.
+const cookieMaxAgeMs = (session: SessionRecord): number =>
+  Math.max(0, Math.min(envConfig.SESSION.COOKIE.MAX_AGE_MS, absoluteDeadline(session) - Date.now()));
 
 const dropExpired = (sid: string, userId: string): void => {
   void sessionRepo.deleteBySid(sid, userId).catch((error: unknown) => {
@@ -247,6 +257,19 @@ const syncUser = async (userId: string, user: SessionUser): Promise<void> => {
   );
 };
 
+const createResetSession = async (email: string): Promise<string> => {
+  const resetId = (await randomBytesAsync(RESET_ID_BYTES)).toString('base64url');
+  await setKey(resetSessionKey(resetId), email, RESET_TTL_SECONDS);
+  return resetId;
+};
+
+const readResetSession = async (resetId: string): Promise<string | null> =>
+  getKey(resetSessionKey(resetId));
+
+const clearResetSession = async (resetId: string): Promise<void> => {
+  await delKey(resetSessionKey(resetId));
+};
+
 const sessionService: SessionService = {
   createSession,
   verifySessionToken,
@@ -259,4 +282,10 @@ const sessionService: SessionService = {
 };
 
 export default sessionService;
-export { toSessionUser };
+export {
+  toSessionUser,
+  cookieMaxAgeMs,
+  createResetSession,
+  readResetSession,
+  clearResetSession,
+};

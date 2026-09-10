@@ -89,7 +89,7 @@ const registerOnboard = catchAsync(async (req, res) => {
     throw ApiError.badRequest("No referral code found for your account");
   }
 
-  // register() is now deliberately silent about duplicate emails, so it cannot
+  // register() is deliberately silent about duplicate emails, so it cannot
   // tell us whether the account was created. Without this check the invitee gets
   // a welcome email with credentials that were never set. Checking here is safe:
   // the caller is an authenticated associate, not an anonymous enumerator.

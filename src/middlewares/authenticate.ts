@@ -1,11 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
-import sessionService from '@auth/services/session.service';
+import sessionService, { cookieMaxAgeMs } from '@auth/services/session.service';
 import { SESSION_INVALID_REASON, type SessionInvalidReason, type SessionRecord } from '@auth/models/Session';
 import { Types } from 'mongoose';
 import type { AuthUser } from '@user/models/User';
 import ApiError from '@utils/apiError';
 import AuthErrors, { type AuthError } from '@constants/authErrors';
-import { getSessionToken, getCookieOptions } from '@utils/cookieHelper';
+import { getSessionToken, getCookieOptions, refreshSessionCookie } from '@utils/cookieHelper';
 import { logger } from '@utils/logger';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 
@@ -47,6 +47,8 @@ const authenticate = (portalRole?: string) => {
 
       const { session } = verified;
 
+      refreshSessionCookie(res, cookieName, token, cookieMaxAgeMs(session));
+
       req.user = toAuthUser(session);
       req.sessionId = session.sid;
       next();
@@ -59,7 +61,6 @@ const authenticate = (portalRole?: string) => {
 };
 
 // Checks availableRoles, not activeRole: holding a role passes while acting as another.
-// Left as-is deliberately — changing it silently alters who can reach what.
 const authorizeRoles = (...allowedRoles: string[]) => (req: Request, _res: Response, next: NextFunction): void => {
   if (!req.user) return next(ApiError.fromAuthError(401, AuthErrors.SESSION_REQUIRED));
   const hasRole: boolean = allowedRoles.some((role: string) => (req.user!.availableRoles || []).includes(role));

@@ -143,12 +143,13 @@ src/
 │  │  ├─ lockout.service.ts         # per-account counters in Redis
 │  │  └─ identity.service.ts        # find / link / create, one funnel per provider
 │  ├─ providers/{password,google,registry}.ts
+│  ├─ helpers/otp.ts                 # OTP lifecycle: generate, store, verify, clear
 │  ├─ models/Session/{index,types,repo}.ts
 │  ├─ controllers/{admin,vendor,associate,customer}/ + shared/
 │  └─ routes/<portal>/auth.ts + routes/shared/limits.ts
 ├─ modules/audit/                   # AuditLog model + record()
 ├─ modules/user/models/{User,Role,UserRole}/
-└─ utils/{cookieHelper,redisKeys,otp}.ts
+└─ utils/{cookieHelper,redisKeys}.ts
 ```
 
 Not built, and named here only so nobody hunts for them: `config/prisma.ts`, `config/portals.ts`,

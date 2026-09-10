@@ -1,6 +1,5 @@
 import type { Document, Model, Types } from 'mongoose';
 
-/** One linked login provider. Owned by user: it is a field on the document. */
 export interface UserIdentity {
   provider: string;
   providerUserId: string;
@@ -32,12 +31,7 @@ export interface IUser extends Document {
   email: string;
   emailVerified: boolean;
   passwordHash: string;
-  /**
-   * Every way this account can sign in — password, Google, whatever is added
-   * next. A new login method is a new entry here, never a new column, which is
-   * what keeps future providers migration-free.
-   * See modules/auth/providers/types.ts.
-   */
+  // Shape and rationale: models/User/schema.ts, providers/types.ts.
   identities: UserIdentity[];
   status: UserStatus;
   firstName: string;

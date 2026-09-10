@@ -6,22 +6,16 @@ const userSchema = new Schema<IUser>(
   {
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     emailVerified: { type: Boolean, default: false },
-    /**
-     * Required only while the account has no other way in. Accounts created
-     * through a provider (Google, and anything added later) carry no password
-     * hash at all, so `required: true` would reject them.
-     */
+    // Provider-created accounts (Google, and any added later) have no password at
+    // all, so `required: true` would reject them.
     passwordHash: {
       type: String,
       required: function (this: IUser) {
         return !this.identities || this.identities.length === 0;
       },
     },
-    /**
-     * One entry per linked login method. Adding a provider adds a row here —
-     * never a new field — so no future provider needs a migration.
-     * Shape: modules/auth/providers/types.ts `UserIdentity`.
-     */
+    // A new login method is a new entry here, never a new field, so no future
+    // provider needs a migration.
     identities: [
       {
         provider: { type: String, required: true, trim: true },
@@ -53,11 +47,8 @@ const userSchema = new Schema<IUser>(
 
 userSchema.index({ status: 1, createdAt: -1 });
 
-/**
- * One provider account can belong to exactly one user, and users without any
- * linked identity are left out of the index entirely (sparse). This is also the
- * index the login funnel reads on every provider sign-in.
- */
+// Unique so one provider account maps to exactly one user; sparse so password-only
+// users, who have no identities, do not all collide on null.
 userSchema.index(
   { 'identities.provider': 1, 'identities.providerUserId': 1 },
   { unique: true, sparse: true },
