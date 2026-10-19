@@ -4,7 +4,7 @@
 
 Everything the server reads at boot is in `src/config/env.ts`, exported as `envConfig`. Nothing
 else in `src/` reads `process.env`. A module that owns its own settings calls the exported
-`readInt` instead — the coupon module does this in `src/modules/coupon/config.ts:1-8`.
+`readInt` instead (`src/config/env.ts:145`). No module owns settings today.
 
 ---
 
@@ -73,7 +73,6 @@ switched off by the exact string `"false"` — `RATE_LIMIT_ENABLED`, `CSRF_ENABL
 | Providers | `GOOGLE_AUTH_ENABLED`, `GOOGLE_CLIENT_IDS` (comma-separated) |
 | OTP / password reset | `OTP_LENGTH`, `OTP_EXPIRY_MINUTES` (default 60), `OTP_SEND_*`, `OTP_VERIFY_MAX_ATTEMPTS`, `RESET_TOKEN_EXPIRY_MINUTES` (default 5) |
 | Email | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM` |
-| Coupon module (product) | `COUPON_REDEEM_*` — read in `src/modules/coupon/config.ts`, not in `env.ts` |
 
 The old aliases `CORS_ORIGIN` and `GOOGLE_CLIENT_ID` are no longer read; use `ALLOWED_ORIGINS` and
 `GOOGLE_CLIENT_IDS`.
@@ -101,7 +100,7 @@ that the code does not default to. Copy it to `.env` to start.
 - **Never read `process.env` outside `config/env.ts`.** Scattered reads cannot be validated, and a
   typo becomes `undefined` at runtime instead of an error at boot. Module config uses `readInt`.
 - **No product-specific config in `src/config/`.** Module configuration belongs to the module
-  (CLAUDE.md hard rule 6). `COUPON_REDEEM_*` now lives in `src/modules/coupon/config.ts`.
+  (CLAUDE.md hard rule 6), in `src/modules/<x>/config.ts`.
 - **No magic numbers in code** — [../standards/coding-practices.md §5](../standards/coding-practices.md).
 - Production secrets belong in a vault, not in a file on the box. `.env*` is gitignored except
   `.env.example`.

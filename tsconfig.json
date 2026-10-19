@@ -30,7 +30,6 @@
       "@auth/*": ["./modules/auth/*"],
       "@audit/*": ["./modules/audit/*"],
       "@user/*": ["./modules/user/*"],
-      "@coupon/*": ["./modules/coupon/*"],
       "@referral/*": ["./modules/referral/*"],
       "@dashboard/*": ["./modules/dashboard/*"],
       "@notification/*": ["./modules/notification/*"]

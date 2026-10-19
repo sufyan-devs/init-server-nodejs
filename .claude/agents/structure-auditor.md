@@ -46,7 +46,7 @@ and either `schema.ts` (Mongoose — every model today except `auth/models/Sessi
 
 **Core vs product** (§3) — core (`src/config`, `constants`, `middlewares`, `routes`, `utils`,
 `scripts`, `types`, `server.ts`, modules `auth`/`user`/`audit`/`notification`) must not import
-`coupon`, `referral` or `dashboard`, except the three registrations in `src/routes/index.ts`.
+`referral` or `dashboard`, except the two imports and two `register` calls in `src/routes/index.ts:5-6,18-19`.
 
 **Sub-entity vs module** (§10, step 0) — if it cannot exist, be listed, or be ordered without its
 parent, it lives *inside* the parent module. Do not promote it to a peer module.
@@ -57,7 +57,7 @@ that no stated trigger justifies.
 
 **Reuse test** (CLAUDE.md hard rule 6) — nothing client-specific may sit in `src/config/`,
 `src/middlewares/`, `src/utils/` or `src/constants/`; module config lives in the module
-(`coupon/config.ts`). Onboarding a client should touch `src/modules/user/seed/roles.ts` and `.env`
+(`modules/<x>/config.ts`). Onboarding a client should touch `src/modules/user/seed/roles.ts` and `.env`
 only. (Target — not built: `seed/permissions.ts` joins that list once permissions are data.)
 
 ## Output

@@ -288,7 +288,7 @@ Login issues a readable `csrf_token_<portal>` cookie and returns the same value 
 | Where it runs | Where |
 |---|---|
 | Per route on the auth routers, after `authenticate` | e.g. `routes/admin/auth.ts:18-25` |
-| Router-wide for every module mounted after auth (user, coupon, referral, dashboard) | `routes/index.ts:12-21` |
+| Router-wide for every module mounted after auth (user, referral, dashboard) | `routes/index.ts:11-19` |
 
 **Mobile and server-to-server clients are not exempt.** There is no header-based bypass. A
 non-browser client must keep both cookies and send the header on every write. The only way out is

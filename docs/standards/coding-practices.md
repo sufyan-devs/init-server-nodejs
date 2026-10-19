@@ -45,16 +45,14 @@ If you copy-paste a block, stop — extract it.
 | Same DB query | a service method today; the entity's `models/<X>/repo.ts` in the Prisma target |
 | Same response/error | `utils/response.ts` + `utils/apiError.ts` |
 
-**Real example — field stripping is duplicated today.**
-`coupon/controllers/vendor/index.ts:15-18` hand-deletes fields (`delete obj.sellingPrice`,
-`delete obj.userId`, ...), and several `schema.ts` files do their own `delete obj.__v`
-(`coupon/models/Coupon/schema.ts:184`, `user/models/User/schema.ts:69`).
-That's the same idea written many times.
+**Example — field stripping.** Today it is done once, in the model: `toJSON` on the user schema
+deletes `passwordHash` and `__v` (`user/models/User/schema.ts:66-71`). The duplication to avoid is
+the same `delete` lines copied into every controller that needs a trimmed view.
 
 ```ts
-// ❌ duplicated in each controller / schema
-const obj = coupon.toJSON();
-delete obj.sellingPrice; delete obj.userId; delete obj.createdAt;
+// ❌ duplicated in each controller — illustrative
+const obj = referral.toObject();
+delete obj.rejectionReason; delete obj.__v; delete obj.createdAt;
 ```
 
 ```ts
@@ -66,7 +64,7 @@ export const omit = <T extends object>(obj: T, keys: (keyof T)[]) => {
   return clone;
 };
 // usage
-const vendorView = omit(coupon.toJSON(), ['sellingPrice', 'userId', 'createdAt']);
+const publicView = omit(referral.toObject(), ['rejectionReason', '__v', 'createdAt']);
 ```
 
 > **Rule of three:** the *first* time write it inline. The *second* time, note the
@@ -80,15 +78,15 @@ const vendorView = omit(coupon.toJSON(), ['sellingPrice', 'userId', 'createdAt']
 A function should do *one* thing and be nameable without "and".
 
 ```ts
-// ❌ createAndValidateAndNotifyCoupon — three jobs, untestable
+// ❌ createAndValidateAndNotifyReferral — three jobs, untestable
 const create = async (req, res) => { /* validate + save + email, 80 lines */ };
 ```
 
 ```ts
-// ✅ each job named and separate (validator → service) — illustrative, couponService does not exist
+// ✅ each job named and separate (validator → service) — illustrative, referralService does not exist
 const create = catchAsync(async (req, res) => {
-  const coupon = await couponService.createForVendor(String(req.user!._id), req.body);
-  return response.created(res, coupon);
+  const referral = await referralService.createForAssociate(String(req.user!._id), req.body);
+  return response.created(res, referral);
 });
 ```
 
@@ -105,17 +103,17 @@ Callers should use a clean front door and never reach into internals.
 **This codebase already does this with barrel `index.ts` files:**
 
 ```ts
-// models/Coupon/index.ts — the front door
+// referral/models/Referral/index.ts:1-2 — the front door
 export { default } from './schema';
 export * from './types';
 ```
 
 ```ts
-// ✅ callers import the front door, not internal files
-import Coupon, { COUPON_STATUS } from '@coupon/models/Coupon';
+// ✅ callers import the front door, not internal files (dashboard/controllers/associate/index.ts:1)
+import Referral, { REFERRAL_STATUS } from '@referral/models/Referral';
 
 // ❌ never reach past it into internals
-import Coupon from '@coupon/models/Coupon/schema';
+import Referral from '@referral/models/Referral/schema';
 ```
 
 **Apply the same to services & utils:** export only what's meant to be used. Keep
@@ -123,8 +121,8 @@ helper functions module-private (don't `export` them) unless another file needs 
 
 ```ts
 // service file — illustrative
-const buildReferralBlock = (coupon) => { ... };   // private — no export
-export const createForVendor = (...) => { ... };  // public API only
+const buildWelcomeBlock = (user) => { ... };        // private — no export
+export const createForAssociate = (...) => { ... };  // public API only
 ```
 
 ---
@@ -135,7 +133,7 @@ Before writing a helper, **search `utils/` first** — it may already exist:
 
 | Need | Use (already exists) |
 |------|----------------------|
-| Validate / convert an ObjectId | `toObjectId`, `isValidObjectId` (`@utils/mongoHelper`) |
+| Convert an id to an ObjectId; recognise a Mongo duplicate-key error | `toObjectId`, `DUPLICATE_KEY_ERROR_CODE` (`@utils/mongoHelper`) |
 | Normalise an email, escape HTML or a regex, read an error's message | `normalizeEmail`, `escapeHtml`, `escapeRegex`, `errorMessage` (`@utils/format`) |
 | Send a response | `response.success/created/error/notFound` (`@utils/response`) |
 | Throw an error | `ApiError.badRequest/forbidden/notFound/conflict/internal`, `ApiError.fromAuthError(entry)` (`@utils/apiError`) |
@@ -144,10 +142,7 @@ Before writing a helper, **search `utils/` first** — it may already exist:
 | A numeric env value | `readInt` (`@config/env`) |
 | Logging | `logger` (`@utils/logger`) |
 
-Coupon money and date helpers (`priceField`, `getDecimal`, `todayDateRange`, `formatDate`) are
-product code in `coupon/helpers/mongo.ts`, not utils.
-
-> **Rule:** a `utils/` helper carries **no business knowledge**. If it knows about "coupons" or
+> **Rule:** a `utils/` helper carries **no business knowledge**. If it knows about "referrals" or
 > "vendors", it belongs in that module's service or `helpers/`, not utils.
 
 ---
@@ -159,11 +154,11 @@ Every fixed string/number gets a name. This repo's pattern: `UPPER_SNAKE` object
 
 ```ts
 // ❌ magic strings — typo-prone, un-searchable
-if (coupon.status === 'PUBLISHED') { ... }
+if (referral.status === 'PENDING') { ... }
 
-// ✅ named constant (already the convention here)
-import { COUPON_STATUS } from '@coupon/models/Coupon';
-if (coupon.status === COUPON_STATUS.PUBLISHED) { ... }
+// ✅ named constant (already the convention here — referral/models/Referral/schema.ts:75)
+import { REFERRAL_STATUS } from '@referral/models/Referral';
+if (referral.status === REFERRAL_STATUS.PENDING) { ... }
 ```
 
 Benefits: autocomplete, one place to change, the compiler catches typos.
@@ -177,11 +172,11 @@ Validate at the **edge**, throw a **typed** error, let the central handler forma
 ```ts
 // ✅ guard clauses at the top, then the happy path runs flat — illustrative
 const submit = async (id: string) => {
-  if (!isValidObjectId(id)) throw ApiError.badRequest('Invalid id', 'BAD_ID');
-  const coupon = await Coupon.findById(id);
-  if (!coupon) throw ApiError.notFound('Coupon not found', 'COUPON_404');
-  if (coupon.status !== COUPON_STATUS.DRAFT)
-    throw ApiError.badRequest('Only DRAFT can be submitted', 'BAD_STATE');
+  if (!mongoose.isValidObjectId(id)) throw ApiError.badRequest('Invalid id', 'BAD_ID');
+  const referral = await Referral.findById(id);
+  if (!referral) throw ApiError.notFound('Referral not found', 'REFERRAL_404');
+  if (referral.status !== REFERRAL_STATUS.PENDING)
+    throw ApiError.badRequest('Only PENDING can be activated', 'BAD_STATE');
   // ...happy path, no nesting
 };
 ```
@@ -199,7 +194,7 @@ const submit = async (id: string) => {
 // ❌ arrow-shaped pyramid
 if (user) {
   if (user.active) {
-    if (coupon) {
+    if (referral) {
       // do work
     }
   }
@@ -210,7 +205,7 @@ if (user) {
 // ✅ exit early, keep the main logic at the left margin
 if (!user) throw ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED);
 if (!user.active) throw ApiError.forbidden('Inactive user');
-if (!coupon) throw ApiError.notFound('Coupon not found');
+if (!referral) throw ApiError.notFound('Referral not found');
 // do work — flat and readable
 ```
 
@@ -224,18 +219,18 @@ Code is read 10× more than written. Optimize for the reader.
 
 | Kind | Convention | Example |
 |------|------------|---------|
-| Functions = verbs | `camelCase`, action-first | `createForVendor`, `assertPurchasable` |
-| Booleans = questions | `is/has/can` | `isDeleted`, `hasReferral`, `canRedeem` |
-| Variables = nouns | descriptive, no abbreviations | `pendingCoupons`, not `pc` |
-| Constants | `UPPER_SNAKE` | `COUPON_STATUS`, `ROLE_CODE` |
-| Async returns | reads naturally | `const coupon = await findCoupon(id)` |
+| Functions = verbs | `camelCase`, action-first | `createForAssociate`, `assertPending` |
+| Booleans = questions | `is/has/can` | `isDeleted`, `hasReferral`, `canApprove` |
+| Variables = nouns | descriptive, no abbreviations | `pendingReferrals`, not `pr` |
+| Constants | `UPPER_SNAKE` | `REFERRAL_STATUS`, `ROLE_CODE` |
+| Async returns | reads naturally | `const referral = await findReferral(id)` |
 
 ```ts
 // ❌ what is d? what is the 2?
 const d = await c.find({ s: 2 });
 
 // ✅ self-documenting — no comment needed
-const pendingCoupons = await Coupon.find({ status: COUPON_STATUS.PENDING });
+const pendingReferrals = await Referral.find({ status: REFERRAL_STATUS.PENDING });
 ```
 
 **Comments explain WHY, not WHAT.** If a comment restates the code, delete it and
@@ -247,7 +242,7 @@ zero (CLAUDE.md hard rule 10).
 i++; // increment i
 
 // ✅ explains a non-obvious decision
-// Percentage discounts are capped at 100 by business rule, enforced in schema too.
+// Capped per user so one leaked password cannot open unlimited devices.
 ```
 
 ---
@@ -258,14 +253,14 @@ Keep calculation separate from I/O. Pure functions (same input → same output, 
 no network) are trivial to test and reuse.
 
 ```ts
-// ✅ pure — computable, testable, reusable
+// ✅ pure — computable, testable, reusable — illustrative, no pricing code exists
 export const finalPrice = (base: number, discount: Discount): number =>
   discount.type === DISCOUNT_TYPE.PERCENTAGE
     ? base * (1 - discount.value / 100)
     : base - discount.value;
 
 // side-effects (DB, email, redis) stay in services, called explicitly — illustrative
-const coupon = await Coupon.create(data);       // I/O isolated in the service
+const referral = await Referral.create(data);   // I/O isolated in the service
 ```
 
 **Rule:** a function that *both* calculates *and* hits the DB is two functions.
@@ -324,7 +319,7 @@ A flag is `true`/`false`. Don't encode it as `1/0`, `"Y"/"N"`, or `"true"/"false
 // ❌ integer/string flags — every reader must remember the encoding
 user.verified = 1;
 if (user.verified === 1) { ... }
-coupon.active = "yes";
+referral.active = "yes";
 
 // ✅ real boolean — self-explanatory, no decoding
 user.verified = true;
@@ -332,13 +327,14 @@ if (user.verified) { ... }                    // not `=== true` — see §13
 ```
 
 **But for more than two states, a boolean is the wrong tool — use an enum.** This repo
-already does this well: a coupon isn't `isActive` + `isPending` + `isSold` (three
-booleans that can contradict each other) — it's one `status` with named values:
+already does this well: a role request isn't `isPending` + `isApproved` + `isRevoked` (three
+booleans that can contradict each other) — it's one `status` with named values
+(`user/models/UserRole/types.ts:3-9`):
 
 ```ts
-// ✅ one source of truth, can't be in two states at once
-import { COUPON_STATUS } from '@coupon/models/Coupon';
-if (coupon.status === COUPON_STATUS.PUBLISHED) { ... }
+// ✅ one source of truth, can't be in two states at once (auth/services/auth.service.ts:243)
+import { USER_ROLE_STATUS } from '@user/models/UserRole';
+if (userRole.status === USER_ROLE_STATUS.APPROVED) { ... }
 ```
 
 > **Smell:** two or more booleans that are never true together → replace with one enum.
@@ -369,8 +365,8 @@ if (count === 0) { ... }
 only `==` worth keeping.
 
 ```ts
-// ✅ true for BOTH null and undefined (coupon/controllers/vendor/index.ts:35)
-if (redeemLimit?.total != null && redeemLimit?.perUser != null) { ... }
+// ✅ true for BOTH null and undefined — illustrative
+if (query.page != null && query.limit != null) { ... }
 
 // equivalent but verbose:
 if (total !== null && total !== undefined) { ... }
@@ -392,11 +388,11 @@ obj?.nested?.field           // optional chaining — safe access, no "cannot re
 `if (x)` is fine for genuine yes/no, but **dangerous when `0` or `''` are valid values.**
 
 ```ts
-// ❌ a valid quantity of 0 is treated as "missing"
-if (!coupon.minimumOrderValue) applyDefault();      // 0 is falsy → wrong branch!
+// ❌ a valid quantity of 0 is treated as "missing" — illustrative
+if (!order.discount) applyDefault();        // 0 is falsy → wrong branch!
 
 // ✅ say exactly what you mean
-if (coupon.minimumOrderValue == null) applyDefault(); // only null/undefined trigger it
+if (order.discount == null) applyDefault(); // only null/undefined trigger it
 ```
 
 > **Rule:** for "does this value exist?", check `== null`. Reserve bare `if (x)` for
@@ -413,10 +409,10 @@ it. This is DRY (§1) applied to logic.
 
 ```ts
 // ❌ same variable compared over and over
-if (status === 'INACTIVE' || status === 'EXPIRED' || status === 'SOLD_OUT') { ... }
+if (status === 'REJECTED' || status === 'SUSPENDED' || status === 'INACTIVE') { ... }
 
 // ✅ one readable membership check
-const CLOSED_STATUSES: readonly CouponStatus[] = [COUPON_STATUS.INACTIVE, COUPON_STATUS.EXPIRED, COUPON_STATUS.SOLD_OUT];
+const CLOSED_STATUSES: readonly ReferralStatus[] = [REFERRAL_STATUS.REJECTED, REFERRAL_STATUS.SUSPENDED, REFERRAL_STATUS.INACTIVE];
 if (CLOSED_STATUSES.includes(status)) { ... }
 // for hot paths / big lists, a Set gives O(1): new Set([...]).has(status)
 ```
@@ -425,17 +421,17 @@ if (CLOSED_STATUSES.includes(status)) { ... }
 
 ```ts
 // ❌ same logic duplicated — change one, forget the other
-if (coupon.status === 'PUBLISHED' && coupon.endDate > now) renderBuyButton();
+if (user.status === 'ACTIVE' && user.emailVerified) issueSession();
 // ...later...
-if (coupon.status === 'PUBLISHED' && coupon.endDate > now) trackImpression();
+if (user.status === 'ACTIVE' && user.emailVerified) sendLoginAlert();
 
 // ✅ name the concept once (reads like a sentence, single point of change)
-const isPurchasable = coupon.status === COUPON_STATUS.PUBLISHED && coupon.endDate > now;
-if (isPurchasable) renderBuyButton();
-if (isPurchasable) trackImpression();
+const canSignIn = user.status === USER_STATUS.ACTIVE && user.emailVerified;
+if (canSignIn) issueSession();
+if (canSignIn) sendLoginAlert();
 ```
 
-> Better still, put `isPurchasable` on the model/service as a method so *every* caller
+> Better still, put `canSignIn` on the model/service as a method so *every* caller
 > shares one definition (encapsulation, §3).
 
 ---
@@ -454,22 +450,22 @@ Pick the structure that makes intent clearest. Rough guide:
 ### Guard clauses beat nested `if` (recap of §7)
 ```ts
 if (!user) throw ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED);
-if (!coupon) throw ApiError.notFound('Coupon not found');
+if (!referral) throw ApiError.notFound('Referral not found');
 // happy path, flat
 ```
 
 ### `switch` over a long `if/else` ladder on the same variable
 ```ts
 // ❌ ladder repeating `status ===`
-if (status === 'DRAFT') ...
-else if (status === 'PENDING') ...
-else if (status === 'PUBLISHED') ...
+if (status === 'PENDING') ...
+else if (status === 'APPROVED') ...
+else if (status === 'REJECTED') ...
 
 // ✅ switch — the variable is stated once
 switch (status) {
-  case COUPON_STATUS.DRAFT:     return handleDraft();
-  case COUPON_STATUS.PENDING:   return handlePending();
-  case COUPON_STATUS.PUBLISHED: return handlePublished();
+  case USER_ROLE_STATUS.PENDING:  return handlePending();
+  case USER_ROLE_STATUS.APPROVED: return handleApproved();
+  case USER_ROLE_STATUS.REJECTED: return handleRejected();
   default:                      throw ApiError.badRequest(`Unknown status: ${status}`);
 }
 ```
@@ -479,11 +475,11 @@ switch (status) {
 
 ### Best for "key → value/handler": a lookup map (no branching)
 ```ts
-// ✅ data instead of control flow — trivial to extend, no if/switch growth
+// ✅ data instead of control flow — trivial to extend, no if/switch growth (illustrative ORDER_STATUS)
 const NEXT_STATUS = {
-  [COUPON_STATUS.DRAFT]:    COUPON_STATUS.PENDING,
-  [COUPON_STATUS.PENDING]:  COUPON_STATUS.APPROVED,
-  [COUPON_STATUS.APPROVED]: COUPON_STATUS.PUBLISHED,
+  [ORDER_STATUS.DRAFT]:  ORDER_STATUS.PLACED,
+  [ORDER_STATUS.PLACED]: ORDER_STATUS.PAID,
+  [ORDER_STATUS.PAID]:   ORDER_STATUS.SHIPPED,
 };
 const next = NEXT_STATUS[current] ?? throwInvalid(current);
 ```

@@ -22,7 +22,7 @@ Express 5 also forwards rejected promises.
 
 **Core vs product:** the reusable core is `src/config`, `constants`, `middlewares`, `routes`,
 `utils`, `scripts`, `types`, `server.ts`, and modules `auth`, `user`, `audit`, `notification`.
-Modules `coupon`, `referral` and `dashboard` are an inherited client's product. The core imports
+Modules `referral` and `dashboard` are an inherited client's product. The core imports
 them only in `src/routes/index.ts`; auth reaches referral only through the signup hook
 (`modules/auth/signupHooks.ts`). Removal steps: [README.md](README.md#starting-a-new-client-project).
 
@@ -92,8 +92,8 @@ npm run db:reset -- <dbName>  # drop Mongo, flush the app's Redis db, re-seed; m
 5. **No hardcoded secret fallbacks.** `COOKIE_SECRET` throws at boot when missing, `MONGO_URI` is
    required in production, and every numeric env value — `PORT` included — goes through `readInt`:
    a bad value names itself and stops the process.
-6. **No product-specific config in `src/config/`.** Module config lives in the module (coupon's is
-   `modules/coupon/config.ts`).
+6. **No product-specific config in `src/config/`.** Module config lives in the module
+   (`modules/<x>/config.ts`; no module needs one today).
 7. **Nothing on the auth hot path may hit the database.** Authenticating a request costs one Redis
    round trip (GET + TTL in one MULTI on the session key) and no database call. It writes only when
    less than half the session TTL remains: an EXPIRE on the session key and on its user index,

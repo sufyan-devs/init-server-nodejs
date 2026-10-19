@@ -130,17 +130,16 @@ From `package.json:5-15`:
 own description (its Overview tab in Postman). In short:
 
 1. **Reset a QA database before every full run:** `npm run db:reset -- <dbName>`. The run creates
-   fixed accounts and coupon codes, so a second run without a reset fails on duplicates.
+   fixed accounts, so a second run without a reset fails on duplicates.
 2. **Raise the login limit:** set `RATE_LIMIT_LOGIN_MAX=1000` (default 30, `src/config/env.ts:258`).
    The run logs in about 25 times from one IP. Leave `RATE_LIMIT_ENABLED` on — one request checks
    the rate-limit headers.
 3. **Import** `postman_collection.json` and set the `{{password}}` variable to the seed password
    (`Qa-Test-99` unless `SEED_ADMIN_PASSWORD` is set, `src/modules/user/seed/users.ts:31-37`).
-4. **Run the folders in order:** Health → Associate → Vendor → Admin → Public → Customer → Coupon
-   Redemption and Wind-down → Auth Scenarios. Each folder creates what the next one uses (the
-   associate's referral code, the vendor's coupons, the customer's purchase); test scripts carry the
+4. **Run the folders in order, top to bottom.** Each folder creates what the next one uses (for
+   example the associate's referral code, which the vendor signs up with); test scripts carry the
    ids forward.
-5. **The 24 `[manual] ...` requests need a person.** Most need a code sent by email, so SMTP must be
+5. **The 20 `[manual] ...` requests need a person.** Most need a code sent by email, so SMTP must be
    configured (`EMAIL_HOST`, `EMAIL_USER`, `EMAIL_PASSWORD`, `src/config/env.ts:205-211`). The
    Google ones need a real Google ID token issued for a client ID in `GOOGLE_CLIENT_IDS`
    (`env.ts:305`). Skip them in an unattended run — no other request depends on them.
@@ -162,14 +161,13 @@ own description (its Overview tab in Postman). In short:
    drift CLAUDE.md hard rule 4 names. The target — permissions as rows, granted to roles by seed — is
    in [docs/modules/auth/authorization.md](docs/modules/auth/authorization.md) and is not built.
 4. **Add the business modules** — one folder each, using the `/new-module` recipe.
-5. **Delete the example product modules** if the client does not need them. `coupon`, `referral` and
+5. **Delete the example product modules** if the client does not need them. `referral` and
    `dashboard` are an inherited client's product, not core. Nothing in the core imports them except
    `src/routes/index.ts`. To remove them:
-   - delete `src/modules/coupon/`, `src/modules/referral/` and `src/modules/dashboard/`;
-   - delete their three imports and three `register` calls in `src/routes/index.ts` (lines 5-7 and
-     19-21);
-   - delete the `@coupon/*`, `@referral/*` and `@dashboard/*` aliases in `tsconfig.json:33-35`;
-   - delete the `COUPON_REDEEM_*` block at the end of `.env.example`.
+   - delete `src/modules/referral/` and `src/modules/dashboard/`;
+   - delete their two imports and two `register` calls in `src/routes/index.ts` (lines 5-6 and
+     18-19);
+   - delete the `@referral/*` and `@dashboard/*` aliases in `tsconfig.json:33-34`.
 
    Auth reaches referral only through a signup hook (`src/modules/auth/signupHooks.ts`, set at
    `src/modules/referral/index.ts:10`). With referral gone no hook is set, and the optional
@@ -196,7 +194,7 @@ src/
 │                          # catchAsync, format, mongoHelper
 └─ modules/
    ├─ auth · user · audit · notification     # core
-   ├─ coupon · referral · dashboard          # product example — deletable (step 5 above)
+   ├─ referral · dashboard                   # product example — deletable (step 5 above)
    └─ <domain>/
       ├─ index.ts             # front door: register(router) + what other modules may import
       ├─ routes/<audience>/   # admin · vendor · associate · customer · public

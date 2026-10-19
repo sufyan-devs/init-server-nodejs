@@ -16,7 +16,7 @@ the key, and it narrows the query automatically.
 ```mermaid
 flowchart TD
   REQ["Request hits route"] --> AN["authenticate(portal)<br/>WHICH COOKIE is valid"]
-  AN --> AZ["requirePermission('coupon:update')<br/>WHAT you may do"]
+  AN --> AZ["requirePermission('referral:update')<br/>WHAT you may do"]
   AZ --> HAS{"actor.perms has key?"}
   HAS -- no --> DENY["403 + audit_log denial"]
   HAS -- yes --> SCOPE{"grant scope"}
@@ -50,8 +50,8 @@ const scopeWhere = (actor, scope, ownerField = 'userId') => {
 
 ```ts
 // routes — identical service for every audience, no duplicated controllers
-router.get('/',      requirePermission('coupon:read'),   ctrl.list);
-router.patch('/:id', requirePermission('coupon:update'), ctrl.update);
+router.get('/',      requirePermission('referral:read'),   ctrl.list);
+router.patch('/:id', requirePermission('referral:update'), ctrl.update);
 ```
 
 `authenticate(portal)` and `requirePermission(key)` are **different axes** and both stay: the first

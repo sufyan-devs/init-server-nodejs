@@ -5,6 +5,3 @@ export const DUPLICATE_KEY_ERROR_CODE = 11000;
 
 export const toObjectId = (id: string | Types.ObjectId): Types.ObjectId =>
   mongoose.Types.ObjectId.createFromHexString(String(id));
-
-export const isValidObjectId = (id: unknown): boolean =>
-  mongoose.Types.ObjectId.isValid(id as string);

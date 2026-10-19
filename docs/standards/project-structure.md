@@ -16,7 +16,7 @@ everything follows the **same shape**.
 ## 1. The Golden Rules (read these first)
 
 1. **Everything lives under `src/`.** Config files (package.json, tsconfig, etc.) stay at the root.
-2. **One module = one business domain** (auth, user, audit, notification, coupon, referral, dashboard).
+2. **One module = one business domain** (auth, user, audit, notification, referral, dashboard).
 3. **Inside a module, code is split by layer:** `routes/` → `controllers/` → `services/` → `models/`,
    with `validators/` at the edge.
 4. **Routes and controllers are split by audience:** `admin/`, `vendor/`, `associate/`, `customer/`, `public/`.
@@ -41,9 +41,9 @@ server.ts                  ← helmet, CORS, compression, /health, global rate l
    │                         body parsers, cookies, HTTP log; mounts /api/v1 (server.ts:32-104)
    ▼
 routes/index.ts            ← auth registers first, then verifyCsrf, then every other module
-   │                         (routes/index.ts:12-21)
+   │                         (routes/index.ts:11-19)
    ▼
-modules/<domain>/index.ts  ← register(): mounts that module's routers (e.g. /admin/coupons)
+modules/<domain>/index.ts  ← register(): mounts that module's routers (e.g. /admin/roles)
    │
    ▼
 routes/<audience>/<name>.ts← URLs + authenticate(role) + authorizeRoles(...) + validate({...})
@@ -60,7 +60,7 @@ models/<Model>/            ← Mongoose schema (today) or repo.ts (Redis today; 
 
 **Remember it as:** `server → routes → module → audience route → controller → service → model`.
 
-Many controllers in `coupon/`, `referral/`, `dashboard/` and some in `auth/` and `user/` still query
+Controllers in `referral/` and `dashboard/` and some in `auth/` and `user/` still query
 Mongoose directly. That is legacy; the rule is controller → service → model (CLAUDE.md hard rule 3).
 
 ---
@@ -73,7 +73,7 @@ Mongoose directly. That is legacy; the rule is controller → service → model 
 | `src/routes/index.ts` | The master router. Registers every module. | One line per new module. |
 | `src/config/` | `env.ts` (read & validate every env var, export `envConfig` and `readInt`), `database.ts` (connect/disconnect). | No product-specific config here (CLAUDE.md hard rule 6). |
 | `src/middlewares/` | App-wide Express middleware: `errorMiddleware`, `httpLogger`, `rateLimit`, `requestId`, `validate`. | Auth middleware is not here — it lives in `modules/auth/middlewares/` and is exported from `@auth/index`. |
-| `src/utils/` | Reusable helpers with no business knowledge: `apiError`, `response`, `logger`, `redisClient`, `redisKeys`, `cookieHelper`, `format`, `mongoHelper`, `catchAsync`. | If it knows about coupons or vendors, it is not a util. |
+| `src/utils/` | Reusable helpers with no business knowledge: `apiError`, `response`, `logger`, `redisClient`, `redisKeys`, `cookieHelper`, `format`, `mongoHelper`, `catchAsync`. | If it knows about referrals or vendors, it is not a util. |
 | `src/constants/` | Fixed values shared across the app. | `authErrors.ts` (`AUTH_ERRORS`). |
 | `src/types/` | Global TypeScript types. | `express.d.ts` extends the Request object. |
 | `src/scripts/` | Operator CLIs run by hand or via an npm script; never imported by app code. | `reset-db.ts` (`npm run db:reset -- <dbName>`). |
@@ -83,11 +83,11 @@ Mongoose directly. That is legacy; the rule is controller → service → model 
 
 The reusable **core** is `src/config`, `constants`, `middlewares`, `routes`, `utils`, `scripts`,
 `types`, `server.ts`, and the modules `auth`, `user`, `audit` and `notification`. The **product**
-modules `coupon`, `referral` and `dashboard` are a client example.
+modules `referral` and `dashboard` are a client example.
 
-Core has no dependency on product except the three registrations in `src/routes/index.ts:5-7` and
-`:19-21`. Removing the product means deleting the three module folders, those lines, and the
-`@coupon/*`, `@referral/*`, `@dashboard/*` aliases (`tsconfig.json:33-35`). Auth reaches referral
+Core has no dependency on product except the two registrations in `src/routes/index.ts:5-6` and
+`:18-19`. Removing the product means deleting the two module folders, those lines, and the
+`@referral/*`, `@dashboard/*` aliases (`tsconfig.json:33-34`). Auth reaches referral
 only through the signup hook (§12).
 
 ---
@@ -111,7 +111,7 @@ modules/<domain>/
 │   └── <Entity>/
 ├── helpers/            ← domain-specific helpers (e.g. user/helpers/upload.ts)
 ├── seed/               ← seed scripts (user/seed/)
-└── config.ts           ← this module's env-driven config, read with readInt (coupon/config.ts)
+└── config.ts           ← this module's env-driven config, read with readInt (no module has one today)
 ```
 
 Which modules have which layers today:
@@ -122,7 +122,6 @@ Which modules have which layers today:
 | `user` | ✅ | ✅ | ✅ | — | `User/`, `Role/`, `UserRole/` | `helpers/`, `seed/` |
 | `audit` | — | — | — | ✅ | `AuditLog/` | front door exports `record` only |
 | `notification` | — | — | — | — | — | `email/` |
-| `coupon` | ✅ | — (inline) | ✅ | — | 3 models | `helpers/`, `config.ts` |
 | `referral` | ✅ | — (inline) | ✅ | — | 2 models | `helpers/`, `signupHook.ts` |
 | `dashboard` | ✅ | — | ✅ | — | — | |
 
@@ -140,8 +139,8 @@ the labeled shelf** where ingredients live.
   (`middlewares/validate.ts:31`). Example: `routes/admin/auth.ts:14`.
 - **`controllers/`** — *"HTTP plumbing only."* Reads `req`, calls a service, sends the response via
   `utils/response.ts`. No business rules, no database calls.
-- **`services/`** — *"The actual business rules."* e.g. "a coupon must be DRAFT before it can be
-  submitted." Takes plain arguments, returns plain data — no `req`, no `res`.
+- **`services/`** — *"The actual business rules."* e.g. "a referral must be PENDING before it can be
+  activated." Takes plain arguments, returns plain data — no `req`, no `res`.
 - **`models/`** — *"How data is stored."* Today: the Mongoose schema, its indexes and instance
   methods. Target: `repo.ts` holds every query for that entity (§16).
 
@@ -156,11 +155,11 @@ map, `PORTAL` in `utils/cookieHelper.ts:6-11`; auth and user mount their routers
 
 | Folder | Who | Example |
 |--------|-----|---------|
-| `admin/` | Internal admins | approve/reject coupons |
-| `vendor/` | Business vendors | create their own coupons |
-| `associate/` | Business associates / referrers | referral actions |
-| `customer/` | End customers | buy/redeem coupons |
-| `public/` | Anyone, no login | browse published coupons (`/pub/coupons`, `coupon/index.ts:14`) |
+| `admin/` | Internal admins | manage customers, vendors, associates and roles (`user/index.ts:12-15`) |
+| `vendor/` | Business vendors | their own profile and referral code (`user/index.ts:17`, `referral/index.ts:15`) |
+| `associate/` | Business associates / referrers | onboard referrals, see referral stats (`referral/index.ts:13`, `dashboard/index.ts:5`) |
+| `customer/` | End customers | their own profile (`user/index.ts:16`) |
+| `public/` | Anyone, no login | none today |
 
 A module only includes the audiences it needs. Logic used by several audiences in one module goes in
 a service, or in `controllers/shared/` (see `auth/controllers/shared/`). Do not copy it per audience.
@@ -170,8 +169,8 @@ a service, or in `controllers/shared/` (see `auth/controllers/shared/`). Do not 
 Split a file only when one of these fires. Never pre-emptively (CLAUDE.md hard rule 10).
 
 1. **Size** — the file passes roughly **300 lines**, or a reader must scroll past unrelated handlers
-   to find one. Split along actions: `coupon/controllers/admin/index.ts` +
-   `coupon/controllers/admin/redemption.ts`.
+   to find one. Split along actions, as `auth/controllers/shared/` is: `passwordReset.ts`,
+   `emailVerification.ts`, `sessions.ts`.
 2. **An actual second caller** — a second file outside this one really needs the code. Then move it
    to a service, `helpers/`, or `utils/` (no business knowledge).
 3. **A real second use case** — the same code must now serve two different purposes. One purpose
@@ -187,7 +186,7 @@ An abstraction with fewer than three real callers is not created at all (CLAUDE.
 Every model is a **folder** named in `PascalCase` with exactly three files:
 
 ```
-models/Coupon/                      models/Session/          (auth, Redis-backed)
+models/Referral/                    models/Session/          (auth, Redis-backed)
 ├── types.ts   ← interface + enums  ├── types.ts
 ├── schema.ts  ← Mongoose schema    ├── repo.ts    ← every Redis read/write for sessions
 └── index.ts   ← front door         └── index.ts
@@ -195,12 +194,12 @@ models/Coupon/                      models/Session/          (auth, Redis-backed
 
 | File | Holds |
 |---|---|
-| `types.ts` | The contract: interfaces (`ICoupon`) and `UPPER_SNAKE as const` enums (`COUPON_STATUS`). No logic — safe to import anywhere. |
+| `types.ts` | The contract: interfaces (`IReferral`) and `UPPER_SNAKE as const` enums (`REFERRAL_STATUS`). No logic — safe to import anywhere. |
 | `schema.ts` | Mongoose models today: fields, validation, indexes, methods. Exports the model as default. |
 | `repo.ts` | Instead of `schema.ts`, when the entity is not a Mongoose model: every query for that entity and nothing else. Today only `auth/models/Session/repo.ts` (Redis). In the Prisma target, every entity (§16). |
 | `index.ts` | Front door — re-exports the default and everything from `types`. |
 
-**`index.ts` is always tiny** (`coupon/models/Coupon/index.ts:1-2`, `auth/models/Session/index.ts:1-2`):
+**`index.ts` is always tiny** (`referral/models/Referral/index.ts:1-2`, `auth/models/Session/index.ts:1-2`):
 
 ```ts
 export { default } from './schema';   // or './repo'
@@ -210,7 +209,7 @@ export * from './types';
 The rest of the app imports the folder, never a file inside it:
 
 ```ts
-import Coupon, { COUPON_STATUS } from '@coupon/models/Coupon';
+import Referral, { REFERRAL_STATUS } from '@referral/models/Referral';
 ```
 
 ---
@@ -240,13 +239,13 @@ export { register, registerUser, hashPassword, authenticate, authorizeRoles, ver
 `audit` and `notification` have no routes, so their front doors export only their API
 (`audit/index.ts:1-3`, `notification/index.ts:1-2`).
 
-`routes/index.ts` calls every `register` (`routes/index.ts:12-21`):
+`routes/index.ts` calls every `register` (`routes/index.ts:11-19`):
 
 ```ts
 authModule.register(router);
 router.use(verifyCsrf);   // everything below already has a session
 userModule.register(router);
-couponModule.register(router);
+referralModule.register(router);
 // ...one line per module
 ```
 
@@ -254,7 +253,7 @@ couponModule.register(router);
 
 ## 7. Path Aliases (no more `../../../`)
 
-Defined in `tsconfig.json:24-37`. Always import with these:
+Defined in `tsconfig.json:24-36`. Always import with these:
 
 | Alias | Points to |
 |-------|-----------|
@@ -266,7 +265,6 @@ Defined in `tsconfig.json:24-37`. Always import with these:
 | `@auth/*` | `src/modules/auth/*` |
 | `@audit/*` | `src/modules/audit/*` |
 | `@user/*` | `src/modules/user/*` |
-| `@coupon/*` | `src/modules/coupon/*` |
 | `@referral/*` | `src/modules/referral/*` |
 | `@dashboard/*` | `src/modules/dashboard/*` |
 | `@notification/*` | `src/modules/notification/*` |
@@ -280,14 +278,14 @@ There is no `@modules/*` alias. **Rule:** every new module gets its own `@<modul
 | Thing | Style | Example |
 |-------|-------|---------|
 | Folders (general) | lowercase | `controllers/`, `routes/` |
-| Model folders | PascalCase | `Coupon/`, `Session/` |
+| Model folders | PascalCase | `Referral/`, `Session/` |
 | Files | camelCase | `cookieHelper.ts`, `requestId.ts` |
 | Service files | `<name>.service.ts` | `session.service.ts` |
 | Audience folders | lowercase audience name | `admin/`, `vendor/` |
 | Module front door | `index.ts` | always |
-| Enums/constants | `UPPER_SNAKE` object `as const` | `COUPON_STATUS`, `ROLE_CODE`, `AUTH_ERRORS` |
-| Model interface | `I` + name | `ICoupon`, `IUser` |
-| URL prefix per audience | plural noun | `/admin/coupons`, `/pub/coupons` |
+| Enums/constants | `UPPER_SNAKE` object `as const` | `REFERRAL_STATUS`, `ROLE_CODE`, `AUTH_ERRORS` |
+| Model interface | `I` + name | `IReferral`, `IUser` |
+| URL prefix per audience | plural noun | `/admin/roles`, `/admin/vendors` |
 
 ---
 
@@ -303,7 +301,7 @@ There is no `@modules/*` alias. **Rule:** every new module gets its own `@<modul
 | Database queries | Today: Mongoose model calls from a service. Target: `models/<Entity>/repo.ts` (§16). Never a `repositories/` folder |
 | Logic shared between audiences in a module | a **service** (preferred) or `controllers/shared/` |
 | A reusable helper with no business knowledge | `src/utils/` |
-| A domain-specific helper (image upload, email template) | `modules/<domain>/helpers/` (`user/helpers/`, `coupon/helpers/`) |
+| A domain-specific helper (image upload, email template) | `modules/<domain>/helpers/` (`user/helpers/`, `referral/helpers/`) |
 | A constant used across the app | `src/constants/` |
 | A constant used by one model | that model's `types.ts` |
 | An app-wide middleware (logging, errors, limits) | `src/middlewares/` |
@@ -332,13 +330,13 @@ The `/new-module` skill walks these steps in order.
 8. Add the `@<name>/*` alias in `tsconfig.json`.
 9. Import and call `<name>Module.register(router)` in `src/routes/index.ts`.
 10. Register Mongoose models at boot by importing them from the module's `index.ts`, as
-    `coupon/index.ts:2-4` does (user's models are imported in `server.ts:21-23`).
+    `referral/index.ts:3-4` does (user's models are imported in `server.ts:21-23`).
 
 ---
 
 ## 11. Full Project Tree
 
-Generated from `git ls-files src` plus untracked files on 2026-10-19.
+Generated from the files present under `src/` in the working tree on 2026-10-19 (`find src -type f`).
 
 ```
 .
@@ -416,58 +414,12 @@ Generated from `git ls-files src` plus untracked files on 2026-10-19.
 │   │   │   │   └── index.ts
 │   │   │   ├── index.ts
 │   │   │   └── signupHooks.ts
-│   │   ├── coupon/
-│   │   │   ├── controllers/
-│   │   │   │   ├── admin/
-│   │   │   │   │   ├── index.ts
-│   │   │   │   │   └── redemption.ts
-│   │   │   │   ├── customer/
-│   │   │   │   │   └── index.ts
-│   │   │   │   ├── public/
-│   │   │   │   │   └── index.ts
-│   │   │   │   └── vendor/
-│   │   │   │       └── index.ts
-│   │   │   ├── helpers/
-│   │   │   │   ├── emailTemplates.ts
-│   │   │   │   └── mongo.ts
-│   │   │   ├── models/
-│   │   │   │   ├── Coupon/
-│   │   │   │   │   ├── index.ts
-│   │   │   │   │   ├── schema.ts
-│   │   │   │   │   └── types.ts
-│   │   │   │   ├── CouponPurchase/
-│   │   │   │   │   ├── index.ts
-│   │   │   │   │   ├── schema.ts
-│   │   │   │   │   └── types.ts
-│   │   │   │   └── CouponRedeem/
-│   │   │   │       ├── index.ts
-│   │   │   │       ├── schema.ts
-│   │   │   │       └── types.ts
-│   │   │   ├── routes/
-│   │   │   │   ├── admin/
-│   │   │   │   │   └── coupon.ts
-│   │   │   │   ├── customer/
-│   │   │   │   │   └── coupon.ts
-│   │   │   │   ├── public/
-│   │   │   │   │   └── coupon.ts
-│   │   │   │   └── vendor/
-│   │   │   │       └── coupon.ts
-│   │   │   ├── config.ts
-│   │   │   └── index.ts
 │   │   ├── dashboard/
 │   │   │   ├── controllers/
-│   │   │   │   ├── admin/
-│   │   │   │   │   └── index.ts
-│   │   │   │   ├── associate/
-│   │   │   │   │   └── index.ts
-│   │   │   │   └── vendor/
+│   │   │   │   └── associate/
 │   │   │   │       └── index.ts
 │   │   │   ├── routes/
-│   │   │   │   ├── admin/
-│   │   │   │   │   └── dashboard.ts
-│   │   │   │   ├── associate/
-│   │   │   │   │   └── dashboard.ts
-│   │   │   │   └── vendor/
+│   │   │   │   └── associate/
 │   │   │   │       └── dashboard.ts
 │   │   │   └── index.ts
 │   │   ├── notification/
@@ -479,7 +431,6 @@ Generated from `git ls-files src` plus untracked files on 2026-10-19.
 │   │   ├── referral/
 │   │   │   ├── controllers/
 │   │   │   │   ├── associate/
-│   │   │   │   │   ├── coupon.ts
 │   │   │   │   │   └── onboard.ts
 │   │   │   │   └── shared/
 │   │   │   │       └── referralCode.ts
@@ -587,7 +538,7 @@ Generated from `git ls-files src` plus untracked files on 2026-10-19.
 
 ## 12. Cross-Module Dependencies & Features That Span Modules
 
-Modules are **not** islands — `coupon` needs `user`, `dashboard` reads everything, `auth` sends
+Modules are **not** islands — `referral` needs `user`, `dashboard` reads `referral`, `auth` sends
 emails via `notification`. That is normal. The question is **how** they link without turning into
 spaghetti.
 
@@ -599,9 +550,8 @@ only.
 ```
 auth         ──→ user (models), audit, notification
 user         ──→ auth, audit
-coupon       ──→ auth, user (models), referral (models), notification
-referral     ──→ auth, user (models), coupon (models), notification
-dashboard    ──→ auth, user (models), coupon (models), referral (models)
+referral     ──→ auth, user (models), notification
+dashboard    ──→ auth, user (models), referral (models)
 audit        ──→ (none — leaf)
 notification ──→ (none — leaf)
 ```
@@ -609,9 +559,8 @@ notification ──→ (none — leaf)
 Representative edges: `auth/services/auth.service.ts:2` (User model),
 `auth/controllers/shared/oauth.ts:6` (`@audit/index`),
 `auth/controllers/shared/emailVerification.ts:3` (`@notification/index`),
-`coupon/controllers/vendor/index.ts:4` (Referral model),
-`referral/controllers/associate/coupon.ts:1` (Coupon model),
-`dashboard/controllers/admin/index.ts:1` (Coupon model).
+`referral/controllers/associate/onboard.ts:4` (User model),
+`dashboard/controllers/associate/index.ts:1` (Referral model).
 
 - `audit` and `notification` are **leaves** — they import only core code. That is healthy: stable,
   low-level modules at the bottom.
@@ -626,10 +575,8 @@ Representative edges: `auth/services/auth.service.ts:2` (User model),
   `user/seed/users.ts:2`, `user/routes/admin/role.ts:3`). Session lifecycle is genuinely `auth`'s
   job, so the edge is real. **What keeps it safe:** `user` imports only `@auth/index`, so the surface
   is a handful of named functions, not the module.
-- ⚠️ **`coupon ↔ referral` is circular**, at model level only (the two lines above). It works
-  because model files have no further module imports, but it is a smell — see Rule 2.
-- `dashboard` depends on many — also healthy: it is a **high-level** module that *reads* from
-  others. Dependencies point *downward*.
+- `dashboard` depends on `referral` and `user` — also healthy: it is a **high-level** module that
+  *reads* from others. Dependencies point *downward*.
 
 ### Rule 1 — Import another module only through its `index.ts`, except models
 
@@ -647,7 +594,7 @@ import User from '@user/models/User';
 
 // ❌ bad — internals of another module
 import sessionService from '@auth/services/session.service';
-import Coupon from '@coupon/models/Coupon/schema';
+import Referral from '@referral/models/Referral/schema';
 ```
 
 Today there are no violations: every cross-module import is `@<x>/index` or a model folder. A
@@ -659,16 +606,16 @@ module importing its *own* files through its own alias (`@user/routes/admin/mana
 Picture modules in layers. Arrows may only point **down**:
 
 ```
-                dashboard            ← high-level (reads many)
-               ↙    ↓     ↘
-          coupon  referral          ← product modules
-               ↘    ↓     ↙
+                dashboard            ← high-level (reads others)
+                    ↓
+                referral             ← product module
+               ↙    ↓
             auth ── user             ← core (auth ↔ user is the known cycle)
                ↘    ↓
           audit   notification       ← leaves
 ```
 
-If two modules need each other (like `coupon ↔ referral`), fix it one of four ways:
+If two modules need each other (like `auth ↔ user`), fix it one of four ways:
 
 1. **Move the shared piece down** into a module both can depend on.
 2. **Pick an owner.** One module owns the relationship and exposes a function through its
@@ -682,14 +629,14 @@ If two modules need each other (like `coupon ↔ referral`), fix it one of four 
 > **Target design — not built.** There is no event bus in `src/` today.
 
 When a feature spans modules and you do not want hard imports, emit an **event** instead of calling
-the other module. *Illustrative:*
+the other module. *Illustrative — there is no `order` module:*
 
 ```ts
-// coupon/services/coupon.service.ts
-events.emit('coupon.created', { couponId, vendorId });   // coupon knows nothing about email
+// order/services/order.service.ts
+events.emit('order.placed', { orderId, customerId });   // order knows nothing about email
 
-// notification/listeners/coupon.listener.ts
-events.on('coupon.created', ({ vendorId }) => sendEmail(vendorId, templates.couponCreated));
+// notification/listeners/order.listener.ts
+events.on('order.placed', ({ customerId }) => sendEmail(customerId, templates.orderPlaced));
 ```
 
 Listeners would live in `modules/<domain>/listeners/` — created only when the first one exists.
@@ -697,17 +644,17 @@ Until then, the signup hook (Rule 2, option 3) covers the one case the code has.
 
 ### Rule 4 — A feature that spans modules → an *orchestrator service*
 
-When one user action touches several modules (e.g. "buy a coupon" = update stock + create purchase +
+When one user action touches several modules (e.g. "place an order" = reserve stock + create order +
 credit referral + send receipt), give it one **service that orchestrates** the others, in the module
-that **owns the action**. *Illustrative — none of these functions exist:*
+that **owns the action**. *Illustrative — there is no `order` module and none of these functions exist:*
 
 ```ts
-// coupon/services/purchase.service.ts
-export const purchaseCoupon = async (customerId: string, couponId: string) => {
-  const coupon = await assertPurchasable(couponId);         // coupon's own rule
-  const purchase = await createPurchase(customerId, coupon);
-  await creditIfReferred(coupon, purchase);                  // referral, via @referral/index
-  return purchase;
+// order/services/checkout.service.ts
+export const placeOrder = async (customerId: string, cartId: string) => {
+  const cart = await assertCheckoutable(cartId);            // order's own rule
+  const order = await createOrder(customerId, cart);
+  await creditIfReferred(customerId, order);                 // referral, via @referral/index
+  return order;
 };
 ```
 
@@ -737,8 +684,8 @@ return response.success(res, data, 200, 'Optional message');
 return response.created(res, data);            // 201
 
 // failure → throw; errorMiddleware formats it (utils/apiError.ts:18-40)
-throw ApiError.badRequest('Coupon code already exists', 'COUPON_DUP');
-throw ApiError.notFound('Coupon not found');
+throw ApiError.conflict('A user with this email already exists', 'EMAIL_EXISTS');   // user/controllers/admin/managedUser.ts:186
+throw ApiError.notFound('Role not found', 'ROLE_NOT_FOUND');                         // user/controllers/admin/role.ts:13
 throw ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED);   // one argument: the entry carries status
 ```
 
@@ -746,7 +693,7 @@ Result:
 
 ```jsonc
 { "success": true,  "data": { ... } }
-{ "success": false, "message": "...", "code": "COUPON_DUP" }
+{ "success": false, "message": "...", "code": "EMAIL_EXISTS" }
 ```
 
 `errorMiddleware` always sends a `code` (`middlewares/errorMiddleware.ts:42-78`).
@@ -791,8 +738,8 @@ Never read `process.env` outside `src/config/env.ts`; import `envConfig`. Secret
 - A missing required secret throws at boot. No hardcoded fallbacks.
 - Every numeric env value — `PORT` included (`config/env.ts:176`) — is read with `readInt`, exported
   from `@config/env` (`config/env.ts:145-154`). A bad value names itself and stops the process.
-- A module's own config lives in the module, not in `src/config/` (CLAUDE.md hard rule 6):
-  `coupon/config.ts:1-8` reads its values with `readInt`.
+- A module's own config lives in the module, not in `src/config/` (CLAUDE.md hard rule 6), in
+  `modules/<domain>/config.ts`, read with `readInt`. No module needs one today.
 
 ### E. Logging — `@utils/logger` (Winston), never `console`
 
@@ -834,11 +781,10 @@ mutating it (`middlewares/validate.ts:36-44`).
 
 ### H. Money & dates
 
-Money is stored as `Decimal128` (Mongo), never a JS float, and arithmetic on money never runs on a
-JS number. The coupon module's `priceField` (`coupon/helpers/mongo.ts:11-15`) is the worked example
-for storage. Its getter `getDecimal` (`coupon/helpers/mongo.ts:8-9`) turns the value into a JS
-number with `parseFloat` for output — acceptable for display, never for calculation. Date-range helpers (`todayDateRange`, `formatDate`) are coupon's own
-(`coupon/helpers/mongo.ts:35,67`) — they are product code, not utils.
+No module stores money today. When one does: store it as `Decimal128` (Mongo), never a JS float,
+and never run arithmetic on money as a JS number. Converting to a number with `parseFloat` is
+acceptable for display only. Date-range and formatting helpers that know a business rule belong to
+the module that needs them, not to `utils/`.
 
 ### I. API versioning — prefix is fixed
 
@@ -900,7 +846,7 @@ Create each folder only when it has content (CLAUDE.md hard rule 10).
 The rules are in [performance-practices.md](performance-practices.md). In short:
 
 - **Always paginate** list endpoints, and cap the page size (`user/validators/index.ts:22-23`).
-- **Compound indexes** matching your query shapes (`coupon/models/Coupon/schema.ts:129-132`).
+- **Compound indexes** matching your query shapes (`audit/models/AuditLog/schema.ts:33-34`).
 - **`.lean()`** and `.select()` on read-only queries.
 - **Cache hot reads in Redis** with a TTL.
 - **Soft-delete + archival** for cold rows.
@@ -929,16 +875,16 @@ prisma.config.ts              ← at the repo root
 prisma/
 └── models/
     ├── user.prisma           ← one schema file per module
-    └── coupon.prisma
+    └── referral.prisma
 
-src/modules/coupon/
+src/modules/referral/
 ├── validators/index.ts       ← unchanged (zod)
 ├── controllers/              ← unchanged; never touches prisma (CLAUDE.md hard rule 3)
 ├── services/                 ← business rules; calls the model's repo
 └── models/
-    └── Coupon/
+    └── Referral/
         ├── types.ts          ← enums + DTO types
-        ├── repo.ts           ← every Prisma query for Coupon, and nothing else
+        ├── repo.ts           ← every Prisma query for Referral, and nothing else
         └── index.ts          ← re-exports repo + types
 ```
 
@@ -947,8 +893,8 @@ lives in `prisma/`. There is still no `repositories/` folder.
 
 ### Why the queries need `repo.ts`
 
-With Mongoose, the model **is** the query tool (`Coupon.find(...)`). With Prisma the client is one
-shared object (`prisma.coupon.findMany()`); if every service calls it directly, query logic scatters.
+With Mongoose, the model **is** the query tool (`Referral.find(...)`). With Prisma the client is one
+shared object (`prisma.referral.findMany()`); if every service calls it directly, query logic scatters.
 `repo.ts` gives each entity's queries one home, exactly as `auth/models/Session/repo.ts` does for
 Redis today.
 
@@ -963,16 +909,16 @@ Redis today.
 *Illustrative:*
 
 ```ts
-// models/Coupon/repo.ts — only Prisma queries live here
-const findById = (id: string) => prisma.coupon.findUnique({ where: { id } });
-const update = (id: string, data: Prisma.CouponUpdateInput) => prisma.coupon.update({ where: { id }, data });
+// models/Referral/repo.ts — only Prisma queries live here
+const findById = (id: string) => prisma.referral.findUnique({ where: { id } });
+const update = (id: string, data: Prisma.ReferralUpdateInput) => prisma.referral.update({ where: { id }, data });
 
-// services/coupon.service.ts — calls the repo, never prisma
-export const submit = async (id: string) => {
-  const coupon = await couponRepo.findById(id);
-  if (coupon?.status !== COUPON_STATUS.DRAFT)
-    throw ApiError.badRequest('Only DRAFT coupons can be submitted', 'COUPON_NOT_DRAFT');
-  return couponRepo.update(id, { status: COUPON_STATUS.PENDING });
+// services/referral.service.ts — calls the repo, never prisma
+export const activate = async (id: string) => {
+  const referral = await referralRepo.findById(id);
+  if (referral?.status !== REFERRAL_STATUS.PENDING)
+    throw ApiError.badRequest('Only PENDING referrals can be activated', 'REFERRAL_NOT_PENDING');
+  return referralRepo.update(id, { status: REFERRAL_STATUS.ACTIVE });
 };
 ```
 
@@ -980,8 +926,8 @@ export const submit = async (id: string) => {
 
 ## 17. AI-Assisted Migration Estimates
 
-> Planning ballparks, not decisions or quotes. Snapshot on 2026-10-19: **~9,800 LOC**, **134 `.ts`
-> files**, **7 modules**, **~3,300 LOC in controllers**. Estimates assume an AI coding agent doing
+> Planning ballparks, not decisions or quotes. Snapshot on 2026-10-19: **~6,600 LOC**, **107 `.ts`
+> files**, **6 modules**, **~1,200 LOC in controllers**. Estimates assume an AI coding agent doing
 > the bulk work with a developer reviewing every step — roughly **3–5× faster** than fully manual.
 
 ### Option A — Express → NestJS (same monolith, different framework)

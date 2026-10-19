@@ -47,13 +47,13 @@ code to filter, join, sum, or transform. The engine does all of that in one quer
 
 ```
 ❌ ANY stack — pull every row, loop in app memory (blocks/bloats)
-   rows = db.getAllCoupons()            // could be millions
+   rows = db.getAllOrders()            // could be millions
    totals = {}
    for (r of rows) totals[r.status]++   // app does the DB's job
 
 ✅ SQL                                   ✅ Mongo
-   SELECT status, COUNT(*)               db.coupons.aggregate([
-   FROM coupons GROUP BY status;           { $group: { _id:'$status', n:{ $sum:1 } } }
+   SELECT status, COUNT(*)               db.orders.aggregate([
+   FROM orders GROUP BY status;           { $group: { _id:'$status', n:{ $sum:1 } } }
                                           ])
 ```
 
@@ -69,8 +69,8 @@ Universal anti-pattern; every ORM has a name and a fix for it.
 
 ```
 ❌ N+1 — one query per row (kills throughput as data grows)
-   coupons = repo.findCoupons()
-   for (c of coupons) c.owner = repo.findUser(c.userId)   // N round-trips
+   orders = repo.findOrders()
+   for (c of orders) c.owner = repo.findUser(c.userId)   // N round-trips
 ```
 
 **The fix, by stack — all express the same idea (batch / join once):**
@@ -78,7 +78,7 @@ Universal anti-pattern; every ORM has a name and a fix for it.
 | Stack | One-query fix |
 |-------|---------------|
 | **SQL (raw)** | `JOIN users u ON u.id = c.user_id` |
-| **Prisma** | `prisma.coupon.findMany({ include: { owner: true } })` |
+| **Prisma** | `prisma.order.findMany({ include: { owner: true } })` |
 | **TypeORM** | `find({ relations: { owner: true } })` or `leftJoinAndSelect` |
 | **Sequelize** | `findAll({ include: [User] })` |
 | **Mongoose** | `.populate('owner')` *or* batch: `User.find({ _id: { $in: ids } })` |
@@ -86,10 +86,10 @@ Universal anti-pattern; every ORM has a name and a fix for it.
 
 ```
 ✅ batch with IN (any stack), then map in memory — O(1) lookups, no DB in the loop
-   ids   = coupons.map(c => c.userId)
+   ids   = orders.map(c => c.userId)
    users = repo.findUsers({ id: IN(ids) })          // ONE extra query
    byId  = index(users, 'id')
-   coupons.forEach(c => c.owner = byId[c.userId])    // pure CPU on a small set
+   orders.forEach(c => c.owner = byId[c.userId])    // pure CPU on a small set
 ```
 
 > The in-memory `map`/`forEach` here is fine — it's pure CPU on an already-fetched
@@ -111,8 +111,8 @@ throw 99% away.
 ```sql
 SELECT c.*, u.name
 FROM (
-  SELECT * FROM coupons
-  WHERE status = 'PUBLISHED'
+  SELECT * FROM orders
+  WHERE status = 'PAID'
   ORDER BY created_at DESC
   LIMIT 20 OFFSET 0            -- 1. filter + sort + paginate FIRST
 ) c
@@ -126,7 +126,7 @@ $match → $sort → $skip → $limit → $lookup → $project
 ```
 
 > ⚠️ **The one exception (both stacks):** if you must **filter or sort by a joined
-> field** ("coupons whose *owner* is in Texas"), you can't defer the join — you'd
+> field** ("orders whose *owner* is in Texas"), you can't defer the join — you'd
 > only filter the first page. Then either push the filter into the join (SQL `WHERE`
 > on the joined table / Mongo `$lookup` sub-pipeline), or **denormalize** that field
 > onto the main row so the join isn't needed on the hot path.
@@ -143,7 +143,7 @@ leftmost-prefix.)
 ```
 query: status = X (equality), ORDER BY created_at (sort), date range (range)
 
-✅ SQL:    CREATE INDEX ix ON coupons (status, created_at, start_date);
+✅ SQL:    CREATE INDEX ix ON orders (status, created_at, start_date);
 ✅ Mongo:  schema.index({ status: 1, createdAt: -1, startDate: 1 });
            //              equality   sort          range
 ```
@@ -232,7 +232,7 @@ result with a TTL instead of hitting the DB every request. DB- and framework-neu
 
 - **Cache-aside** pattern: check cache → miss → query DB → store in cache.
 - **Invalidate on write** when the underlying data changes.
-- Always set a **TTL**; namespace keys (`coupons:published:*`). In this repo every key name comes
+- Always set a **TTL**; namespace keys (`orders:paid:*`). In this repo every key name comes
   from a builder in `src/utils/redisKeys.ts` ([project-structure.md §13F](project-structure.md)).
 - Layers (use what fits): in-process cache → **Redis/Memcached** (shared) → CDN/reverse
   proxy for public GETs. NestJS has a built-in `CacheModule`; Express uses a Redis client.

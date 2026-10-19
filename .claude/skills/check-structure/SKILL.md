@@ -17,7 +17,7 @@ exception (`docs/standards/project-structure.md` §12 Rule 1, CLAUDE.md hard rul
 every cross-module import that is neither:
 
 ```bash
-for m in auth audit user coupon referral dashboard notification; do
+for m in auth audit user referral dashboard notification; do
   grep -rnE "(from|import) '@$m/[^']+'" src --include=*.ts \
     | grep -v "^src/modules/$m/" \
     | grep -vE "@$m/(index|models/[A-Za-z]+)'"
@@ -27,10 +27,10 @@ done
 Empty output is a pass (it was empty on 2026-10-19). Add a new module's name to the list.
 
 Then check core does not depend on product (project-structure.md §3, "Core and product"). The only
-allowed hits are the three registrations in `src/routes/index.ts`:
+allowed hits are the two product imports in `src/routes/index.ts:5-6`:
 
 ```bash
-grep -rnE "@(coupon|referral|dashboard)/" src --include=*.ts | grep -vE "^src/modules/(coupon|referral|dashboard)/"
+grep -rnE "@(referral|dashboard)/" src --include=*.ts | grep -vE "^src/modules/(referral|dashboard)/"
 ```
 
 Then relay the agent's findings: what is misplaced, which rule and section, where it belongs.

@@ -29,7 +29,7 @@ is not a module. Ask before scaffolding if it is borderline.
 - `index.ts` — front door: `export { default } from './schema'; export * from './types';`
 
 Register the models at boot by importing them from the module's `index.ts`, as
-`src/modules/coupon/index.ts:2-4` does.
+`src/modules/referral/index.ts:3-4` does.
 
 > **Target design — not built:** PostgreSQL + Prisma v7, with one schema file per module under
 > `prisma/` and `repo.ts` in place of `schema.ts` (project-structure.md §16). Prisma is not
@@ -72,7 +72,7 @@ modules may import only `@<domain>/index`, or a model folder directly (CLAUDE.md
 project-structure.md §12 Rule 1).
 
 **7. Config, only if needed** — env-driven values go in `modules/<domain>/config.ts`, each numeric
-one read with `readInt` from `@config/env` (`src/modules/coupon/config.ts`). Never in `src/config/`
+one read with `readInt` from `@config/env` (`src/config/env.ts:145`). Never in `src/config/`
 (CLAUDE.md hard rule 6). Add the variables to `.env.example`.
 
 **8. Wire it up** — one `register` line in `src/routes/index.ts`, one `@<domain>/*` alias in

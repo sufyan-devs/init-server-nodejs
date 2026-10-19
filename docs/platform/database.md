@@ -30,7 +30,6 @@ name, lowercased and pluralised:
 | `Role` | `src/modules/user/models/Role/schema.ts:56` | `roles` | core |
 | `UserRole` | `src/modules/user/models/UserRole/schema.ts:117` | `userroles` | core |
 | `AuditLog` | `src/modules/audit/models/AuditLog/schema.ts:36` | `auditlogs` | core |
-| `Coupon`, `CouponPurchase`, `CouponRedeem` | `src/modules/coupon/models/*/schema.ts` | `coupons`, `couponpurchases`, `couponredeems` | product |
 | `Referral`, `ReferralCode` | `src/modules/referral/models/*/schema.ts` | `referrals`, `referralcodes` | product |
 
 There is no permissions collection: roles are the `ROLE_CODE` enum, enforced on `Role.code` by
@@ -38,7 +37,7 @@ the schema (`Role/schema.ts:11`).
 
 **Where queries live today.** A model folder is `index.ts` + `types.ts` + `schema.ts`, and the
 Mongoose model is called from services and, in legacy code, straight from controllers — for
-example `src/modules/user/controllers/admin/role.ts:44` and the coupon, referral and dashboard
+example `src/modules/user/controllers/admin/role.ts:44` and the referral and dashboard
 controllers. That breaks the layer rule (CLAUDE.md hard rule 3); new code must not add more.
 
 `npm run db:reset` drops the whole Mongo database, flushes the app's Redis db and re-seeds. It

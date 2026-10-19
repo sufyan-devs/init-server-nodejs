@@ -133,7 +133,7 @@ There is no refresh token, so the parallel-refresh race and grace windows do not
 
 - **PARTLY BUILT** — zod at the edge (`middlewares/validate.ts`). Every auth route with a body or
   params validates it (`routes/<portal>/auth.ts`). Other modules are not complete: for example
-  `POST /associate/referrals/onboard` runs no `validate()` (`referral/routes/associate/referral.ts:12`).
+  `POST /associate/referrals/onboard` runs no `validate()` (`referral/routes/associate/referral.ts:11`).
 - **BUILT** — JSON body capped at 100 kb (`server.ts:97`).
 - Uploads (`user/helpers/upload.ts`, `user/helpers/image.ts`):
   - **BUILT** — declared type limited to JPEG, PNG, WEBP (`400 INVALID_FILE_TYPE`), size capped at

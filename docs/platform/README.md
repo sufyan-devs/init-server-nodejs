@@ -35,7 +35,7 @@ flowchart TD
   LOG --> API["/api/v1 router"]
   API --> AUTHR["auth routers<br/>per route: limiter → validate,<br/>or authenticate → authorizeRoles → verifyCsrf"]
   API --> CSRF["verifyCsrf<br/>router-wide, below auth"]
-  CSRF --> MODR["user · coupon · referral · dashboard routers<br/>per route: authenticate → authorizeRoles → validate (where present)"]
+  CSRF --> MODR["user · referral · dashboard routers<br/>per route: authenticate → authorizeRoles → validate (where present)"]
   AUTHR --> CTRL["controller → service → model"]
   MODR --> CTRL
   CTRL --> OUT["response"]
@@ -52,7 +52,7 @@ Sources: `requestId` → `compression` at `server.ts:32-71`; `/health` at `serve
 `/uploads` at `server.ts:87-91`; `globalRateLimit` at `server.ts:95`; body parsers, cookies and the
 HTTP logger at `server.ts:97-100`; the API mount at `server.ts:102`; `errorMiddleware` at
 `server.ts:104`. Inside the API router, auth is registered first and the router-wide `verifyCsrf`
-comes after it (`src/routes/index.ts:12-21`). A typical auth route is
+comes after it (`src/routes/index.ts:11-19`). A typical auth route is
 `src/modules/auth/routes/customer/auth.ts:14-27`; a typical module route is
 `src/modules/user/routes/admin/managedUser.ts:14,23-29`.
 
@@ -109,4 +109,4 @@ per layer) and §12 (cross-module imports). They are not repeated here.
 **Today versus the rule:** the target chain is controller → service → `models/<X>/repo.ts`. Only
 `modules/auth/models/Session/repo.ts` exists (it is Redis, not a database). Many legacy controllers
 call Mongoose models directly — for example `src/modules/user/controllers/admin/role.ts:44` and the
-`coupon`, `referral` and `dashboard` controllers. See [database.md](database.md).
+`referral` and `dashboard` controllers. See [database.md](database.md).

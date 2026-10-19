@@ -30,7 +30,7 @@ const ROLES = [
   {
     code: ROLE_CODE.VENDOR,
     name: 'Vendor',
-    description: 'Coupon vendor',
+    description: 'Vendor',
     roleType: ROLE_TYPE.APPLICATION,
     canSelfRegister: true,
     autoApproveOnSignup: !IN_PROD,
