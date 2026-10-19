@@ -91,7 +91,12 @@ starter for a client means setting these two, not editing templates.
 
 `.env.example` lists every variable with a comment. Its numbers and switches match the code
 defaults in `env.ts`; `REDIS_URL` and `ALLOWED_ORIGINS` are filled in with local-development values
-that the code does not default to. Copy it to `.env` to start.
+that the code does not default to, and `EMAIL_FROM` holds a placeholder address. Copy it to `.env` to
+start. `COOKIE_SECRET` stays empty on purpose: the file is committed, so any value in it is public.
+
+The file ends with a commented **TEST MODE** block of short lifetimes (2-minute sessions, OTP and
+reset codes; a 60-second lockout after 3 wrong passwords; low rate limits) for testing expiry by
+hand. Uncomment a line to use it: dotenv lets a later duplicate key override an earlier one.
 
 ---
 
