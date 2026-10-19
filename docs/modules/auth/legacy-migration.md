@@ -140,13 +140,14 @@ revocable — which also makes a "your active devices" screen possible for the f
 the design on 2026-08-24 ([../../decisions.md](../../decisions.md)); the per-user session index was
 meant to let role changes delete or rewrite sessions directly instead.
 
-**Today — still true.** `availableRoles` is copied into the Redis session at login
-(`auth.service.ts:169-186`) and `authorizeRoles` reads it (`authenticate.ts:57-60`). No endpoint
-changes a user role, and nothing rewrites `availableRoles` in live sessions; a deactivated role
-is dropped only at the next login (`UserRole/schema.ts:72-81`). `switch-role` writes
-the same snapshot back (`portalAuth.ts:73-77`). The window is shorter than before: 7 days idle,
-30 days at most (`env.ts:5-6`). The only immediate cut-off is suspending the account, which deletes
-every session ([flows.md](flows.md#what-the-session-copy-does-decide-roles)).
+**Today — fixed for the role actions that exist.** `availableRoles` is still copied into the Redis
+session at login (`auth.service.ts:181-199`) and `authorizeRoles` reads it (`authenticate.ts:57-60`).
+Approving a role request, activating or deactivating a role, and an auto-approved `request-role`
+now rewrite it in every live session of the affected users, and delete a session whose `activeRole` is no longer held
+(`session.service.ts:269-283`). There is still no endpoint that revokes an approved user role, and
+a change made by hand in the database is not synced: that session keeps the role until it ends —
+7 days idle, 30 days at most (`env.ts:5-6`) — or the account is suspended
+([flows.md](flows.md#what-the-session-copy-does-decide-roles)).
 
 ### 4. Holding a role is treated as using it
 
@@ -192,8 +193,8 @@ The "Where" column is the pre-migration code; the "Today" column is current.
 | What | Where (before) | Why it matters | Today |
 |---|---|---|---|
 | Login returns before hashing when the email is unknown | `authHelper.ts:136` | Response time reveals whether an account exists | **Fixed** — dummy hash, `password.service.ts:77-80` |
-| Distinct error codes per failure reason | `ACCOUNT_INACTIVE`, `ACCOUNT_LOCKED`, `INVALID_CREDENTIALS`, `PORTAL_ACCESS_DENIED`, `ACCOUNT_NOT_APPROVED` | Each one confirms an account exists | **Fixed** before the password is proven — one generic 401, `password.service.ts:82-99`. `ACCOUNT_NOT_APPROVED` and `PORTAL_ACCESS_DENIED` remain, after a correct password only (`auth.service.ts:169-175`) |
-| `{ requiresEmailVerification: true, email }` returned | `authHelper.ts:151-153` | Confirms the address is registered | **Fixed** — still returned, but only after a correct password (`auth.service.ts:160-167`) |
+| Distinct error codes per failure reason | `ACCOUNT_INACTIVE`, `ACCOUNT_LOCKED`, `INVALID_CREDENTIALS`, `PORTAL_ACCESS_DENIED`, `ACCOUNT_NOT_APPROVED` | Each one confirms an account exists | **Fixed** before the password is proven — one generic 401, `password.service.ts:82-99`. `ACCOUNT_NOT_APPROVED` and `PORTAL_ACCESS_DENIED` remain, after a correct password only (`auth.service.ts:181-188`) |
+| `{ requiresEmailVerification: true, email }` returned | `authHelper.ts:151-153` | Confirms the address is registered | **Fixed** — still returned, but only after a correct password (`auth.service.ts:172-179`) |
 | Lockout counter never resets on its own | `User/schema.ts:63-68` | After 5 failures, every later failure re-locked for another 15 minutes | **Fixed** — Redis counter with a fixed window, `lockout.service.ts:27-43` |
 | Lock duration hardcoded as `15 * 60 * 1000` | `User/schema.ts:66` | Magic value — [coding-practices §5](../../standards/coding-practices.md) | **Fixed** — `LOCKOUT_DURATION_SECONDS`, `env.ts:277` |
 | bcryptjs, 10 rounds | `User/schema.ts:2,47` | bcrypt is no longer the recommended default | **Fixed** — argon2id; bcryptjs only verifies legacy `$2` hashes, `password.service.ts:36-47` |
@@ -222,8 +223,10 @@ Each item names where it lives **today**.
   job — moot while sessions stay in Redis.
 - **Role switch validates the target** against `availableRoles` (`session.service.ts:227-229`).
 - **`UserRole` lifecycle columns** — who/when/why for approve, reject, suspend and revoke
-  (`UserRole/schema.ts:41-54`). Only the columns: nothing in `src/` writes the reject, suspend or
-  revoke ones, and approval happens only at creation (`UserRole/schema.ts:107-112`).
+  (`UserRole/schema.ts:41-54`). Approval is written at creation for auto-approved roles
+  (`UserRole/schema.ts:107-112`) and by the admin approve and reject endpoints
+  (`user/controllers/admin/roleRequest.ts:65-69,85-90`); nothing in `src/` writes the suspend or
+  revoke ones.
 - **Data-driven role flags** — `canSelfRegister`, `autoApproveOnSignup`,
   `emailVerificationRequired` (`Role/schema.ts:29-40`). The target extends the idea to permissions.
 
@@ -233,7 +236,7 @@ Each item names where it lives **today**.
 
 | Before | Planned | Built today (2026-10-19) |
 |---|---|---|
-| `LoginSession`: one active row per user, plaintext token, `availableRoles` snapshot | `sessions`: one row per device, `SHA-256` token hash, `familyId` | Redis key per device, `SHA-256(secret)`, no `familyId` (no refresh token). `availableRoles` is **still a snapshot** — problem 3 open |
+| `LoginSession`: one active row per user, plaintext token, `availableRoles` snapshot | `sessions`: one row per device, `SHA-256` token hash, `familyId` | Redis key per device, `SHA-256(secret)`, no `familyId` (no refresh token). `availableRoles` is rewritten in live sessions by the admin role actions — problem 3 fixed, except for hand edits in the database |
 | `ROLE_CODE` enum, enforced in the Mongoose schema | `roles` + `permissions` + `role_permissions` rows | **Not built** — problem 5 open |
 | `authorizeRoles(...)` on `availableRoles` | `requirePermission(key)` + `own`/`tenant`/`any` scope | **Not built** — problem 4 open |
 | 2 reads + 1 write per request | 2 Redis reads, zero Postgres | One Redis round trip, no database call; a write only past half the TTL ([flows.md §2](flows.md#2-authenticated-request--the-hot-path)) |

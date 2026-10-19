@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 import UserRole from '@user/models/UserRole';
 import { getProvider, getEnabledProviderIds } from '@auth/providers';
 import { resolveUser } from '@auth/services/identity.service';
+import { pickPortalRole } from '@auth/services/auth.service';
 import sessionService, { toSessionUser } from '@auth/services/session.service';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 import ApiError from '@utils/apiError';
@@ -36,7 +37,8 @@ const oauthLogin = (roleCode: string) =>
     if (availableRoles.length === 0) {
       throw ApiError.fromAuthError(AUTH_ERRORS.ACCOUNT_NOT_APPROVED);
     }
-    if (!availableRoles.includes(roleCode)) {
+    const activeRole = pickPortalRole(availableRoles, roleCode);
+    if (!activeRole) {
       throw ApiError.fromAuthError(AUTH_ERRORS.PORTAL_ACCESS_DENIED);
     }
 
@@ -46,9 +48,9 @@ const oauthLogin = (roleCode: string) =>
     const session = await sessionService.createSession({
       userId,
       user: toSessionUser(user),
-      activeRole: roleCode,
+      activeRole,
       availableRoles,
-      portal: roleCode,
+      portal: activeRole,
       ipAddress,
       userAgent,
       deviceInfo: typeof body.deviceInfo === 'string' ? body.deviceInfo : undefined,
@@ -58,7 +60,7 @@ const oauthLogin = (roleCode: string) =>
       actorId: userId,
       action: AUDIT_ACTION.LOGIN_SUCCESS,
       outcome: AUDIT_OUTCOME.SUCCESS,
-      meta: { provider: identity.provider, activeRole: roleCode, portal: roleCode, isNewUser },
+      meta: { provider: identity.provider, activeRole, portal: activeRole, isNewUser },
       ip: ipAddress,
       userAgent,
     });
@@ -67,7 +69,7 @@ const oauthLogin = (roleCode: string) =>
     const csrfToken = await issueCsrfToken(res, session.sid, roleCode);
 
     return response.success(res, {
-      user: { ...user.toAuthJSON(), activeRole: roleCode },
+      user: { ...user.toAuthJSON(), activeRole },
       isNewUser,
       csrfToken,
     });

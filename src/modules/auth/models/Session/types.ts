@@ -2,6 +2,7 @@ export const SESSION_REVOKE_REASON = {
   MANUAL: 'manual',
   LOGOUT_ALL: 'logout_all',
   ACCOUNT_INACTIVE: 'account_inactive',
+  ROLE_REMOVED: 'role_removed',
 } as const;
 
 export type SessionRevokeReason =

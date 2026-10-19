@@ -1,8 +1,7 @@
 import { randomInt } from 'node:crypto';
 import ReferralCode from '@referral/models/ReferralCode';
-import Referral, { REFERRAL_STATUS } from '@referral/models/Referral';
+import Referral from '@referral/models/Referral';
 import User from '@user/models/User';
-import { ROLE_CODE } from '@user/models/Role';
 import { registerUser } from '@auth/index';
 import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
@@ -10,32 +9,25 @@ import response from '@utils/response';
 import { toObjectId } from '@utils/mongoHelper';
 import { sendEmail } from '@notification/index';
 import * as templates from '@referral/helpers/emailTemplates';
+import type { OnboardListQuery, onboardSchema } from '@referral/validators';
+import type { z } from 'zod';
+
+type OnboardInput = z.infer<typeof onboardSchema>;
 
 const list = catchAsync(async (req, res) => {
   const userId = toObjectId(req.user!._id);
-  const {
-    page = 1,
-    limit = 20,
-    status,
-    sortBy = "referredAt",
-    sortOrder = "desc",
-  } = req.query;
+  const { page, limit, status, sortBy, sortOrder } = req.query as unknown as OnboardListQuery;
+  const skip = (page - 1) * limit;
 
-  const pageNum = Math.max(1, parseInt(page as string));
-  const limitNum = Math.min(50, Math.max(1, parseInt(limit as string)));
-  const skip = (pageNum - 1) * limitNum;
-
-  const filter: any = { referrerId: userId };
-  if (status && Object.values(REFERRAL_STATUS).includes(status as any)) {
-    filter.status = status;
-  }
+  const filter: Record<string, unknown> = { referrerId: userId };
+  if (status) filter.status = status;
 
   const [referrals, total] = await Promise.all([
     Referral.aggregate([
       { $match: filter },
-      { $sort: { [sortBy as string]: sortOrder === "asc" ? 1 : -1 } },
+      { $sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 } },
       { $skip: skip },
-      { $limit: limitNum },
+      { $limit: limit },
       {
         $lookup: {
           from: "users",
@@ -67,10 +59,10 @@ const list = catchAsync(async (req, res) => {
   return response.success(res, {
     referrals,
     pagination: {
-      page: pageNum,
-      limit: limitNum,
+      page,
+      limit,
       total,
-      totalPages: Math.ceil(total / limitNum),
+      totalPages: Math.ceil(total / limit),
     },
   });
 });
@@ -79,15 +71,11 @@ const TEMP_PASSWORD_CHARS =
   "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
 
 const registerOnboard = catchAsync(async (req, res) => {
-  const { email, firstName, lastName, phone, role } = req.body ?? {};
-
-  if (![ROLE_CODE.VENDOR, ROLE_CODE.CUSTOMER].includes(role)) {
-    throw ApiError.badRequest("Role must be VENDOR or CUSTOMER");
-  }
+  const { email, firstName, lastName, phone, role } = req.body as OnboardInput;
 
   const referralCodeRecord = await ReferralCode.findByUserId(req.user!._id);
   if (!referralCodeRecord) {
-    throw ApiError.badRequest("No referral code found for your account");
+    throw ApiError.badRequest("No referral code found for your account", 'REFERRAL_CODE_NOT_FOUND');
   }
 
   // register() is deliberately silent about duplicate emails, so it cannot

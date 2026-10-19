@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import type { PipelineStage } from 'mongoose';
-import { assertPasswordAllowed, hashPassword, revokeUserSessions, syncSessionUser } from '@auth/index';
+import { assertPasswordAllowed, hashPassword, revokeUserSessions, syncSessionUser, runRoleApprovedHook } from '@auth/index';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME, type AuditAction } from '@audit/index';
 import User, { USER_STATUS } from '@user/models/User';
 import UserRole, { USER_ROLE_STATUS } from '@user/models/UserRole';
@@ -202,6 +202,7 @@ const makeManagedUserController = (
       autoApprove: true,
       approvedBy: req.user!._id,
     });
+    await runRoleApprovedHook({ userId: user._id, roleCode });
 
     // Saved last: an earlier failure would otherwise leave an orphan file on disk.
     if (req.file) {

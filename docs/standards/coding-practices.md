@@ -332,7 +332,7 @@ booleans that can contradict each other) — it's one `status` with named values
 (`user/models/UserRole/types.ts:3-9`):
 
 ```ts
-// ✅ one source of truth, can't be in two states at once (auth/services/auth.service.ts:243)
+// ✅ one source of truth, can't be in two states at once (auth/services/auth.service.ts:127,258)
 import { USER_ROLE_STATUS } from '@user/models/UserRole';
 if (userRole.status === USER_ROLE_STATUS.APPROVED) { ... }
 ```

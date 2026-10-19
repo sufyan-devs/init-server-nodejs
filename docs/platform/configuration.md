@@ -36,8 +36,8 @@ work today are in [README.md](../../README.md#starting-a-new-client-project).
 | `MONGO_URI` missing in production | `env.ts:156-160`, `180` | throws; in development it falls back to `mongodb://localhost:27017/app` |
 | any integer setting not a whole number, or below its minimum | `readInt`, `env.ts:145-154` | throws, naming the variable and the bad value. Applies to every number in `env.ts`, `PORT` included (`env.ts:176`) |
 | `REDIS_URL` db index disagrees with `REDIS_DB` | `src/utils/redisClient.ts:16-21` | throws at import |
-| `ALLOWED_ORIGINS` empty in production | `src/server.ts:110-113` | logs and exits |
-| Redis unreachable at boot | `src/server.ts:117-121` | exits |
+| `ALLOWED_ORIGINS` empty in production | `src/server.ts:114-117` | logs and exits |
+| Redis unreachable at boot | `src/server.ts:121-125` | exits |
 
 `COOKIE_SECRET` is the only secret. It signs the session cookies (`src/server.ts:99`) and keys the
 CSRF HMAC (`src/modules/auth/middlewares/csrf.ts:23-26`). `JWT_SECRET` no longer exists — there are
@@ -71,7 +71,7 @@ switched off by the exact string `"false"` — `RATE_LIMIT_ENABLED`, `CSRF_ENABL
 | Rate limits | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_<GLOBAL\|LOGIN\|REGISTER\|OTP>_MAX` and `_WINDOW_SECONDS` |
 | Lockout | `LOCKOUT_MAX_ATTEMPTS`, `LOCKOUT_WINDOW_SECONDS`, `LOCKOUT_DURATION_SECONDS` |
 | Providers | `GOOGLE_AUTH_ENABLED`, `GOOGLE_CLIENT_IDS` (comma-separated) |
-| OTP / password reset | `OTP_LENGTH`, `OTP_EXPIRY_MINUTES` (default 60), `OTP_SEND_*`, `OTP_VERIFY_MAX_ATTEMPTS`, `RESET_TOKEN_EXPIRY_MINUTES` (default 5) |
+| OTP / password reset | `OTP_LENGTH`, `OTP_EXPIRY_MINUTES` (default 10), `OTP_SEND_*`, `OTP_VERIFY_MAX_ATTEMPTS`, `RESET_TOKEN_EXPIRY_MINUTES` (default 5) |
 | Email | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM` |
 
 The old aliases `CORS_ORIGIN` and `GOOGLE_CLIENT_ID` are no longer read; use `ALLOWED_ORIGINS` and

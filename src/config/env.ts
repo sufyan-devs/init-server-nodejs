@@ -215,7 +215,7 @@ export const envConfig: EnvConfig = {
     // 6, not 4: a 4-digit code has 10k possibilities, and the verify limiter
     // allows 5 attempts per window per account.
     LENGTH: readInt("OTP_LENGTH", 6),
-    EXPIRY_MINUTES: readInt("OTP_EXPIRY_MINUTES", 60),
+    EXPIRY_MINUTES: readInt("OTP_EXPIRY_MINUTES", 10),
     SEND: {
       MAX_REQUESTS: readInt("OTP_SEND_MAX_REQUESTS", 5),
       WINDOW_MINUTES: readInt("OTP_SEND_WINDOW_MINUTES", 60),

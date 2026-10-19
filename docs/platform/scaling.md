@@ -71,7 +71,7 @@ Unbounded growth is the failure that arrives quietly, months later.
 | sessions per user | `SESSION_MAX_PER_USER` (10, `src/config/env.ts:192`) — oldest evicted after each login | a login loop grows the set forever |
 | session payload | small record, no user document ([redis.md](redis.md#what-is-in-it)) | memory grows per session, batched reads slow down |
 | every Redis key | a TTL ([redis.md](redis.md#key-map)) | keys accumulate permanently |
-| list endpoints | page size capped — 100 in the user module (`src/modules/user/validators/index.ts:22-23`) | one request can read the whole collection |
+| list endpoints | page size capped — 100 in the user module (`src/modules/user/validators/index.ts:23-24`) | one request can read the whole collection |
 | JSON / form body | 100 kb, parsed **after** the global limiter (`src/server.ts:95-98`) | an attacker gets synchronous `JSON.parse` time for free |
 | uploaded file | 2 MB, held in memory (`src/modules/user/helpers/upload.ts:7`, `16-20`) | a large upload exhausts memory |
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { normalizeEmail } from '@utils/format';
 import { ROLE_CODE, ROLE_TYPE } from '@user/models/Role';
+import { USER_ROLE_STATUS } from '@user/models/UserRole';
 
 const objectId = z.string().regex(/^[a-f0-9]{24}$/i, { error: 'Invalid id' });
 
@@ -83,4 +84,17 @@ export const updateRoleSchema = z.strictObject({
 
 export type ManagedUserListQuery = z.infer<typeof managedUserListQuerySchema>;
 export type RoleListQuery = z.infer<typeof roleListQuerySchema>;
+
+export const roleRequestListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+  status: z.enum(USER_ROLE_STATUS).default(USER_ROLE_STATUS.PENDING),
+  roleCode: z.enum(ROLE_CODE).optional(),
+});
+
+export type RoleRequestListQuery = z.infer<typeof roleRequestListQuerySchema>;
+
+export const rejectRoleRequestSchema = z
+  .strictObject({ reason: z.string().trim().max(500).optional() })
+  .default({});
 

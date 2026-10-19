@@ -22,7 +22,7 @@
 | **Limiter fails open, auth fails closed** | Failing closed on limits turns a cache outage into a total outage; auth failing closed protects data | 2026-08-24 | built — limiter `rateLimit.ts:100-108`; `authenticate` passes a Redis error on as a 5xx, not a 401 (`modules/auth/middlewares/authenticate.ts:30-31,51-52`) |
 | **Providers are pluggable, identity is generic** | Adding Google/Apple/GitHub must never need a migration, a route or a session change | 2026-08-24 | built — Google is the only provider (`modules/auth/providers/registry.ts:4-6`) |
 | **Cross-module imports only via `@<module>/index`; models may be imported directly** | Routing models through `index.ts` creates load-order cycles | 2026-10-19 | rule — [project-structure.md §12](standards/project-structure.md) |
-| **Core and product are separate** | The core (config, constants, middlewares, routes, utils, scripts, types, `server.ts`; modules auth, user, audit, notification) must survive deleting `referral` and `dashboard`. The core imports them only in `src/routes/index.ts:5-6,18-19`; auth reaches referral only through a signup hook (`modules/auth/signupHooks.ts`) | 2026-10-19 | built — removal steps in [README.md](../README.md#starting-a-new-client-project) |
+| **Core and product are separate** | The core (config, constants, middlewares, routes, utils, scripts, types, `server.ts`; modules auth, user, audit, notification) must survive deleting `referral` and `dashboard`. The core imports them only in `src/routes/index.ts:5-6,18-19`; auth reaches referral only through two hooks it stores but does not implement — a signup hook and a role-approved hook (`modules/auth/signupHooks.ts:17-43`), set by `modules/referral/index.ts:10-11` | 2026-10-19 | built — removal steps in [README.md](../README.md#starting-a-new-client-project) |
 | **Unbuilt design stays in the docs, marked** | Postgres + Prisma, permission rows, `requirePermission` and `models/<X>/repo.ts` are the plan; deleting them loses the plan, leaving them unmarked misleads | 2026-10-19 | policy — every such page or section says "Target design — not built" |
 | **Never install dependencies** | The owner's machine cannot absorb it — report the need instead | 2026-08-24 | policy |
 
@@ -90,19 +90,19 @@ tokens genuinely need it.
 
 `authenticate` used to do one Redis read **and** a `User.findById`, purely to fill the `email`,
 `firstName`, `lastName`, `emailVerified` and `profileImage` that `req.user` promises. Those five
-fields are now copied into the session at login (`modules/auth/models/Session/types.ts:21-29`), so
+fields are now copied into the session at login (`modules/auth/models/Session/types.ts:22-30`), so
 the hot path makes **no database call at all** (`modules/auth/middlewares/authenticate.ts:19-28`).
 
 That read was doing a second, unadvertised job: enforcing `user.status === ACTIVE`. Removing it
 without replacement would let a **suspended account keep working sessions for up to 30 days** — a
 security regression disguised as a performance win. So suspension now revokes every session for that
-user (`revokeUserSessions`, `modules/auth/index.ts:25-26`), and the two events that change a cached
+user (`revokeUserSessions`, `modules/auth/index.ts:27-28`), and the two events that change a cached
 field — profile edits and email verification — rewrite the copy in place (`syncSessionUser`,
-`modules/auth/index.ts:28-29`).
+`modules/auth/index.ts:30-31`).
 
 **The trade-off we accepted:** every write that touches a display field must call one of those
 functions, and a missed call shows up as stale data in `/me` rather than as a test failure. That is
-8 call sites today: 4 admin in `user/controllers/admin/managedUser.ts:235,250,274,290`, 3
+8 call sites today: 4 admin in `user/controllers/admin/managedUser.ts:236,251,275,291`, 3
 self-service in `user/controllers/shared/profile.ts:36,50,66`, and 1 email verification, which
 calls `sessionService.syncUser` directly (`modules/auth/controllers/shared/emailVerification.ts:43`).
 The alternative — re-reading the user on every request — costs a database round trip on *every
@@ -123,7 +123,6 @@ Each needs an owner decision before the work it blocks.
 | 2 | **Product modules** — `referral/` and `dashboard/` are now separable from the core (see the "Core and product" row). Should the starter keep shipping them as a worked example, or delete them? | Delete; keep `notification/` as a leaf utility | trimming the starter |
 | 4 | **Account lockout is a DoS vector** — an attacker who knows an email can lock it for 15 minutes with 5 wrong passwords (`modules/auth/services/lockout.service.ts:27-37`, defaults `src/config/env.ts:275-277`) | Lock on a combined signal (account + IP), or add a CAPTCHA before the lock | hardening |
 | 5 | **`identity.service.ts` still returns a distinct 409** on OAuth linking (`modules/auth/services/identity.service.ts:75,135,184`), unlike every other endpoint | Left deliberate: probing costs a controlled Google account per email, and a generic error would strand a real user who signed up with a password | consistency |
-| 6 | **Role changes do not reach live sessions.** `availableRoles` is copied into the session at login (`modules/auth/services/auth.service.ts:181`, `controllers/shared/oauth.ts:50`), and switch-role writes the session's own copy back (`controllers/shared/portalAuth.ts:77`, `services/session.service.ts:235-242`). Deactivating a role (`modules/user/controllers/admin/role.ts:90-95`) touches no session; it takes effect only at the **next login**, because the login lookup skips roles whose `Role.isActive` is false (`modules/user/models/UserRole/schema.ts:72-81`). No endpoint approves, revokes or removes a role on a user. **Real world:** an admin deactivates the VENDOR role; a vendor already logged in keeps vendor access until that session ends — up to 30 days — and the next vendor login is refused | When a role is deactivated or taken away, revoke the affected users' sessions, the way suspension already does | authorization pass |
 
 **Closed by the 2026-08-24 work:** the refresh-token race and JWT signing questions are moot (neither
 is built); HIBP is on by default; lockout counters moved to Redis.
@@ -133,6 +132,24 @@ is deleted. The logger, the error middleware, the rate limiter and the auth cont
 `req.ip` (`src/middlewares/httpLogger.ts:6`, `src/middlewares/errorMiddleware.ts:36`,
 `src/middlewares/rateLimit.ts:41`), and `trust proxy` is set from `TRUSTED_PROXY_COUNT` only in
 production (`src/server.ts:28-30`).
+
+**Closed 2026-10-19 (was question 6, "role changes do not reach live sessions"):** the actions
+that change which roles a user holds now rewrite every live session of that user.
+`syncSessionRoles(userId)` re-reads the user's role codes with the login lookup
+(`modules/auth/index.ts:33-34`, `modules/user/models/UserRole/schema.ts:72-81`) and passes them to
+`sessionService.syncRoles` (`modules/auth/services/session.service.ts:269-283`). For each session:
+if its `activeRole` is still held, `availableRoles` is overwritten (TTL kept); if not, the session
+is revoked with reason `role_removed` (`modules/auth/models/Session/types.ts:5`). The callers are
+`PATCH /admin/role-requests/:id/approve` (`modules/user/controllers/admin/roleRequest.ts:72`),
+`PATCH /admin/roles/:id/toggle-status`, which syncs every user holding that role
+(`modules/user/controllers/admin/role.ts:98-103`), and an auto-approved `POST /request-role`, which
+syncs the caller's own sessions so the new role works without a new login
+(`modules/auth/services/auth.service.ts:258-262`). **Still not covered:** there is no endpoint that
+suspends or revokes an approved user role, and a change made by hand in the database is not
+synced. **Real world:** an admin deactivates the VENDOR role; a vendor logged in as VENDOR is
+logged out on the next request, and a user who also holds CUSTOMER keeps their customer session
+with VENDOR removed from it. Role sync adds 3 call sites to the 8 above; the "revisit" note above
+applies to both.
 
 ---
 

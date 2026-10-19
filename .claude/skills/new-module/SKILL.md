@@ -41,7 +41,7 @@ plain data; no `req`, no `res`. Must be callable from a job, a CLI or a test.
 
 **3. Validators** — `validators/index.ts`. zod schemas for body, query **and** params, applied on
 the route with `validate({ body, params, query })` from `@middlewares/validate`. Cap every page
-size (see `src/modules/user/validators/index.ts:22-23`).
+size (see `src/modules/user/validators/index.ts:23-24`).
 
 **4. Controllers** — `controllers/<audience>/`, one folder per audience the module serves: `admin`,
 `vendor`, `associate`, `customer`, `public`. Thin: call the service → respond via

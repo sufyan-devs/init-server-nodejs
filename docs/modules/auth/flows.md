@@ -15,7 +15,7 @@ listed once, in [../../platform/redis.md](../../platform/redis.md).
 ## 1. Login
 
 `POST /api/v1/<portal>/auth/login`. The order below is the order in the code:
-`auth.service.ts:156-202` calls `verifyPassword` in `password.service.ts:74-104`.
+`auth.service.ts:168-215` calls `verifyPassword` in `password.service.ts:74-104`.
 
 ```mermaid
 sequenceDiagram
@@ -54,9 +54,10 @@ sequenceDiagram
   A->>M: approved + active role codes (UserRole)
   alt none
     A-->>C: 403 AUTH_ACCOUNT_NOT_APPROVED
-  else none for this portal
+  else none that maps to this portal
     A-->>C: 403 AUTH_PORTAL_ACCESS_DENIED
   end
+  Note over A: activeRole = the portal's role if held,<br/>else the first held role on the same portal
   A->>R: SET sess:{sid} {record} EX 7d<br/>SADD user:{userId}:sessions {sid}
   A->>M: audit LOGIN_SUCCESS
   A-->>C: Set-Cookie {base}_{portal}={sid}.{secret} (signed, httpOnly)<br/>Set-Cookie csrf_token_{portal} (readable)<br/>body { user, csrfToken }
@@ -70,17 +71,23 @@ Step by step, with sources:
 | Hash first | The password is checked before any guard. No account, or no `passwordHash` (a Google-only user), runs `dummyVerify` instead | `password.service.ts:77-80`, `28-34` |
 | Guards | no account → no password → status not `ACTIVE` → locked → wrong password, each a generic 401 | `password.service.ts:82-99` |
 | Success | Both lockout keys deleted; a `$2` or weaker argon2 hash is re-hashed in the background | `password.service.ts:101-102`, `46-61` |
-| Email gate | Applies to every portal (no customer bypass) when the role's `emailVerificationRequired` is set | `auth.service.ts:162-167`, response at `portalAuth.ts:37-39` |
-| Roles | Only `APPROVED` + `isActive` user roles count, and only for roles whose own `Role.isActive` is true | `auth.service.ts:169-175`, `UserRole/schema.ts:72-81` |
+| Email gate | Applies to every portal (no customer bypass) when the role's `emailVerificationRequired` is set | `auth.service.ts:174-179`, response at `portalAuth.ts:37-39` |
+| Roles | Only `APPROVED` + `isActive` user roles count, and only for roles whose own `Role.isActive` is true | `auth.service.ts:181-183`, `UserRole/schema.ts:72-81` |
+| Portal role | `pickPortalRole` keeps the portal's own role when the user holds it, otherwise takes the first held role that maps to the same portal. None → `PORTAL_ACCESS_DENIED`. Google login uses the same function | `auth.service.ts:163-166,185-188`, `oauth.ts:40-43` |
 | Session | 16-byte random sid, 32-byte random secret, only `SHA-256(secret)` stored | `session.service.ts:122-149` |
 | Device cap | Oldest sessions beyond `SESSION_MAX_PER_USER` (10) are evicted, fire-and-forget | `session.service.ts:94-104`, `env.ts:192` |
 | Cookies | Session cookie, then CSRF cookie; the CSRF token is also in the body | `portalAuth.ts:41-45` |
 
-**The session record** (`Session/types.ts:31-44`): `sid`, `secretHash`, `userId`, `user` (the five
+**The session record** (`Session/types.ts:32-45`): `sid`, `secretHash`, `userId`, `user` (the five
 display fields `email`, `firstName`, `lastName`, `emailVerified`, `profileImage`), `activeRole`,
 `availableRoles`, `portal`, `ipAddress`, `userAgent`, `deviceInfo`, `createdAt`, `lastSeenAt`.
-`portal` holds the **role code** used at login (for example `ADMIN`), not the URL segment
-(`auth.service.ts:182`).
+`portal` holds a **role code**, not the URL segment: the role the user actually holds that was
+picked for this portal, the same value as `activeRole` at login (`auth.service.ts:193,195`,
+`oauth.ts:51,53`).
+
+> **Real world:** Priya holds only SUPER_ADMIN. The admin portal asks for ADMIN, which she does
+> not hold, so `pickPortalRole` picks SUPER_ADMIN, which maps to the same `admin` portal. She is
+> logged in with `activeRole: SUPER_ADMIN` and `portal: SUPER_ADMIN`.
 
 **Key names.** `sid` is 32 hex characters. User-supplied segments are hashed to 32 hex characters
 by `identifierHash` before they go into a key: the rate-limit key is `rl:login:ip:<hash(ip)>`,
@@ -180,9 +187,9 @@ by `authenticate.ts:19-28`. A copy goes stale unless something updates it:
 
 | When | What happens | Where |
 |---|---|---|
-| Account suspended by an admin | **every session revoked before the status is saved** | `user/controllers/admin/managedUser.ts:249-254` |
+| Account suspended by an admin | **every session revoked before the status is saved** | `user/controllers/admin/managedUser.ts:250-255` |
 | Email verified | that user's sessions rewritten | `auth/controllers/shared/emailVerification.ts:43` |
-| Name or avatar edited by an admin | sessions rewritten | `user/controllers/admin/managedUser.ts:235,274,290` |
+| Name or avatar edited by an admin | sessions rewritten | `user/controllers/admin/managedUser.ts:236,275,291` |
 | Name or avatar edited by the user | sessions rewritten | `user/controllers/shared/profile.ts:36,50,66` |
 
 8 call sites (4 admin, 3 self-service, 1 email verification). The admin ones sit in one controller
@@ -195,25 +202,42 @@ revocation is the only thing that ends a suspended account's access.
 
 ### What the session copy does decide: roles
 
-**`availableRoles` is a snapshot taken at login, and authorization reads it.** `authorizeRoles`
-checks `req.user.availableRoles` (`authenticate.ts:57-60`), which comes straight from the record.
-Nothing refreshes it:
+**`availableRoles` is copied into the record at login, and authorization reads it.**
+`authorizeRoles` checks `req.user.availableRoles` (`authenticate.ts:57-60`), which comes straight
+from the record. Three actions rewrite that copy in every live session of the user; nothing else
+does:
 
-- `switch-role` writes back the session's own snapshot — the controller passes
+- **`syncSessionRoles(userId)`** re-reads the user's role codes from MongoDB with the same lookup
+  login uses (`auth/index.ts:33-34`, `UserRole/schema.ts:72-81`) and hands them to
+  `sessionService.syncRoles` (`session.service.ts:269-283`). For each live session: if its
+  `activeRole` is still in the new list, `availableRoles` is overwritten with `saveFields` (TTL
+  kept); if not, the session is **revoked** with reason `role_removed`
+  (`Session/types.ts:5`). A session acting as a role the user no longer holds cannot be repaired.
+- It runs when an admin **approves a role request** (`PATCH /admin/role-requests/:id/approve`,
+  `user/controllers/admin/roleRequest.ts:62-79`, sync at `72`), when an admin **activates or
+  deactivates a role** (`PATCH /admin/roles/:id/toggle-status`,
+  `user/controllers/admin/role.ts:92-112`) — every user holding that role as `APPROVED` +
+  `isActive` is synced (`role.ts:98-103`) — and when **`POST /request-role` is auto-approved**
+  because the role has `autoApproveOnSignup`: the caller's own sessions are synced, so the new
+  role works without a new login (`auth.service.ts:258-262`, which calls `sessionService.syncRoles`
+  directly). Rejecting a `PENDING` request syncs nothing — a pending role was never in a session.
+- `switch-role` writes back the session's own copy — the controller passes
   `req.user.availableRoles` (`portalAuth.ts:73-77`, `session.service.ts:235-240`). The write is
   `saveFields`, which keeps the key's TTL, so a switch never extends the session
   (`session.service.ts:242`, `Session/repo.ts:92-94`).
-- No endpoint approves, rejects, suspends or revokes a user role. The `UserRole` schema has the
-  columns (`UserRole/schema.ts:41-54`); nothing in `src/` writes them after creation.
-- Deactivating a role (`PATCH /admin/roles/:id/toggle-status`, `user/controllers/admin/role.ts:90-95`)
-  touches no session. It takes effect at the **next login**: `getUserRoleCodes` skips roles whose
-  `Role.isActive` is false (`UserRole/schema.ts:72-81`). Sessions already open keep the code until
-  they end.
+- **No endpoint suspends or revokes an approved user role.** The `UserRole` schema has the columns
+  (`UserRole/schema.ts:48-54`); nothing in `src/` writes them. A change made directly in the
+  database does not reach live sessions.
 
-> **Real world:** a database operator sets Lena's ADMIN user role to `REJECTED` at 09:00. Her
-> laptop session from 08:00 still lists ADMIN and keeps passing admin checks until it ends —
-> logout, password reset, suspension, or expiry (7 days idle, 30 days at most). To cut her off now,
-> suspend the account, which revokes every session.
+> **Real world:** an admin deactivates the VENDOR role at 09:00. Omar, a vendor, is logged in on
+> his laptop with `activeRole: VENDOR`: that session is deleted, and his next request gets `401`.
+> Sara holds VENDOR and CUSTOMER and is logged in to the customer portal: her session stays, and
+> its `availableRoles` drops VENDOR.
+
+> **Real world:** a database operator sets Lena's ADMIN user role to `REVOKED` by hand. No sync
+> runs, so her laptop session still lists ADMIN until it ends — logout, password reset,
+> suspension, or expiry (7 days idle, 30 days at most). To cut her off now, suspend the account,
+> which revokes every session.
 
 **Any database call added to `authenticate.ts` is a blocking review finding.**
 
@@ -227,6 +251,7 @@ flowchart TD
   A["DELETE /sessions/:sid"] --> OWN{"session.userId<br/>== caller?"}
   OWN -- no --> E["404 AUTH_SESSION_NOT_FOUND"]
   OWN -- yes --> D1
+  RS["role sync: the session's activeRole<br/>is no longer held"] --> D1
   LA["POST /logout-all"] --> D2["SMEMBERS the index →<br/>DEL each session + DEL the index"]
   PR["password reset"] --> D2
   SU["admin suspends the account"] --> D2
@@ -241,7 +266,8 @@ flowchart TD
 |---|---|
 | Logout deletes the current session | `portalAuth.ts:48-63` → `Session/repo.ts:108-111` |
 | Revoke one device: one read to check ownership, then delete | `session.service.ts:191-197` |
-| Logout-all, password reset, suspension | `auth.service.ts:204-211`, `passwordReset.ts:141`, `auth/index.ts:25-26` → `Session/repo.ts:119-123` |
+| Logout-all, password reset, suspension | `auth.service.ts:217-224`, `passwordReset.ts:141`, `auth/index.ts:27-28` → `Session/repo.ts:119-123` |
+| A role sync finds a session whose `activeRole` is no longer held | `session.service.ts:277-280` → `revokeSession`, `session.service.ts:182-189` |
 
 Revocation is a delete, so it takes effect on the very next request. Each `DEL` is single-key on
 purpose: session keys scatter across slots on a Redis cluster (`Session/repo.ts:63-64`).
@@ -283,7 +309,18 @@ carries our cookies. The defence is a token the other site cannot read.
 Login issues a readable `csrf_token_<portal>` cookie and returns the same value in the body
 (`csrf.ts:31-50`, `portalAuth.ts:41-45`). Every `POST`, `PUT`, `PATCH` and `DELETE` that runs
 `verifyCsrf` must echo it in the `x-csrf-token` header; `GET`, `HEAD` and `OPTIONS` are exempt
-(`csrf.ts:19,84-109`).
+(`csrf.ts:19,84-111`).
+
+**A write with no session cookie passes through.** `verifyCsrf` first looks for the portal's
+session cookie; when there is none it calls `next()` without checking anything (`csrf.ts:90-91`).
+Such a request carries no credential a forged request could ride on, and the next step rejects it:
+`authenticate` answers `401 AUTH_SESSION_REQUIRED`, and a path that matches no route reaches the
+JSON 404 (`server.ts:104-106`). With a session cookie, a missing cookie or header is still
+`403 AUTH_CSRF_MISSING` and a bad signature `403 AUTH_CSRF_INVALID` (`csrf.ts:96-108`).
+
+> **Real world:** a client mistypes a path and posts to `/api/v1/admin/rolez` with no cookies. It
+> gets `404 ROUTE_NOT_FOUND`, which names the real problem. Without the pass-through the
+> router-wide check would answer `403 AUTH_CSRF_MISSING` for a route that does not exist.
 
 | Where it runs | Where |
 |---|---|

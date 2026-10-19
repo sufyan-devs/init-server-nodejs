@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "9a763c80-e195-4718-9a86-c316f2954ee9",
     "name": "Init Server API",
-    "description": "Reusable starter API: admin, vendor, associate and customer portals.\n\nSeeded users (npm run db:reset creates these, all with the same password):\n- Admin: admin@test.com\n- Vendor: vendor@test.com\n- BA: ba@test.com\n- Customer: customer@test.com\n\nHOW TO RUN (QA)\n1. Start from a fresh database: npm run db:reset -- <dbName> (drops the database in MONGO_URI and flushes REDIS_DB, then seeds; <dbName> must match the database MONGO_URI points at, or it refuses). Several requests create fixed accounts, so a second run without a reset fails on duplicates.\n2. Set the {{password}} collection variable to the seed password (printed by the seed: Qa-Test-99 unless SEED_ADMIN_PASSWORD is set). Change {{serverUrl}} and {{baseUrl}} if the server is not on localhost:8000.\n3. For a full run, raise the login rate limit (e.g. RATE_LIMIT_LOGIN_MAX=1000) or the run hits 429 - the collection logs in about 20 times from one IP. Keep RATE_LIMIT_ENABLED=true: \"Auth Scenarios / Sessions, Providers and Limits / 1.\" checks the RateLimit headers. If you step through by hand, make SESSION_EXPIRY_MS longer than your pauses.\n4. Run the folders top to bottom, in order. Each test script saves the ids later requests use ({{baReferralCode}}, {{customerUserId}}, {{roleId}}, {{sid}} ...); nothing has to be copied by hand.\n5. The 20 requests named \"[manual] ...\" need a human: an emailed code ({{otp}}) or a real Google ID token ({{googleIdToken}}). Their descriptions say exactly what to paste. Skip them in an unattended run; no request depends on them unless it is also marked [manual].\n6. Upload requests need a file picked in the \"file\" form field (any JPG, PNG or WEBP under 2 MB) - Postman cannot embed one in a collection.\n\nFolder order matters: Associate creates the referral code Vendor uses (Register Vendor (With Referral) and Request Additional Role). Auth Scenarios runs last. Each portal folder ends with \"Sessions, Sign-out and Recovery\", which logs that account out.\n\nURLs: {{baseUrl}} includes /api/v1. {{serverUrl}} is the bare server, used only by /health.\n\nAuth: an opaque session in a per-portal httpOnly cookie, stored in Redis, one per device. Postman's cookie jar sends it automatically. There is no Bearer token.\n\nCSRF: login and OAuth responses include data.csrfToken. A collection-level test script stores it as {{adminCsrf}}, {{vendorCsrf}}, {{associateCsrf}} or {{customerCsrf}} by the portal in the URL. Every non-GET request that needs a session sends it as the x-csrf-token header; without it the server returns 403.\n\nPASSWORD POLICY: PASSWORD_MIN_LENGTH characters (default 8) and not a known-breached password (HIBP).",
+    "description": "Reusable starter API: admin, vendor, associate and customer portals.\n\nSeeded users (npm run db:reset creates these, all with the same password):\n- Admin: admin@test.com\n- Vendor: vendor@test.com\n- BA: ba@test.com\n- Customer: customer@test.com\n\nHOW TO RUN (QA)\n1. Start from a fresh database: npm run db:reset -- <dbName> (drops the database in MONGO_URI and flushes REDIS_DB, then seeds; <dbName> must match the database MONGO_URI points at, or it refuses). Several requests create fixed accounts, so a second run without a reset fails on duplicates.\n2. Set the {{password}} collection variable to the seed password (printed by the seed: Qa-Test-99 unless SEED_ADMIN_PASSWORD is set). Change {{serverUrl}} and {{baseUrl}} if the server is not on localhost:8000.\n3. For a full run, raise the login rate limit (e.g. RATE_LIMIT_LOGIN_MAX=1000) or the run hits 429 - the collection logs in about 35 times from one IP. Keep RATE_LIMIT_ENABLED=true: \"Auth Scenarios / Sessions, Providers and Limits / 1.\" checks the RateLimit headers. If you step through by hand, make SESSION_EXPIRY_MS longer than your pauses.\n4. Run the folders top to bottom, in order. Each test script saves the ids later requests use ({{baReferralCode}}, {{customerUserId}}, {{roleId}}, {{sid}} ...); nothing has to be copied by hand.\n5. The 20 requests named \"[manual] ...\" need a human: an emailed code ({{otp}}) or a real Google ID token ({{googleIdToken}}). Their descriptions say exactly what to paste. Skip them in an unattended run; no request depends on them unless it is also marked [manual].\n6. Upload requests need a file picked in the \"file\" form field (any JPG, PNG or WEBP under 2 MB) - Postman cannot embed one in a collection.\n\nFOLDER ORDER: Health, Routing, Associate, Vendor, Admin, Customer, Auth Scenarios, Role Scenarios. Order matters: Routing must run before any login (it checks requests that carry no session cookie); Associate creates the referral code Vendor uses (Register Vendor (With Referral) and Request Additional Role); Role Scenarios runs last and puts back every role setting it changes. Any path that leaves a role APPROVED - auto-approval at signup or on request-role, an admin approval, an admin creating a user - activates the PENDING referral for that role and creates a referral code for a BUSINESS_ASSOCIATE or VENDOR that has none. A role granted by self-service request-role is pushed into the caller's live sessions, so Switch Role right after Request Additional Role works without logging in again. Each portal folder ends with \"Sessions, Sign-out and Recovery\", which logs that account out.\n\nROLE SCENARIOS: Role Requests turns auto-approval off for VENDOR and BUSINESS_ASSOCIATE so three requests stay PENDING in any environment, then the admin approves two and rejects one - an approved role is switchable at once, without logging in again, and an approval activates the referral the request carried and gives a new associate its referral code. Role Toggle Live Sync deactivates VENDOR while its holder is logged in (that session is revoked, their other-portal session loses the role) and re-activates it. Admin Portal Login as SUPER_ADMIN briefly opens SUPER_ADMIN to self-registration to make an account that holds SUPER_ADMIN but not ADMIN, shows it can log in to the admin portal, then closes registration and suspends the account.\n\nADMIN ROLE REQUESTS: GET /admin/role-requests (status = PENDING (default), APPROVED, REJECTED, SUSPENDED or REVOKED; roleCode; page; limit), PATCH /admin/role-requests/:id/approve, PATCH /admin/role-requests/:id/reject (optional body {\"reason\": \"...\"}). Deciding a request that is no longer PENDING is 400 ROLE_REQUEST_NOT_PENDING; an unknown id is 404 ROLE_REQUEST_NOT_FOUND.\n\nUNKNOWN ROUTES: JSON 404 {\"code\": \"ROUTE_NOT_FOUND\"}. A POST under a portal path that carries that portal's session cookie but no x-csrf-token is still 403 AUTH_CSRF_MISSING, because CSRF runs before routing.\n\nURLs: {{baseUrl}} includes /api/v1. {{serverUrl}} is the bare server, used only by /health and one Routing request.\n\nAuth: an opaque session in a per-portal httpOnly cookie, stored in Redis, one per device. Postman's cookie jar sends it automatically. There is no Bearer token.\n\nCSRF: login and OAuth responses include data.csrfToken. A collection-level test script stores it as {{adminCsrf}}, {{vendorCsrf}}, {{associateCsrf}} or {{customerCsrf}} by the portal in the URL. Every non-GET request that needs a session sends it as the x-csrf-token header; without it the server returns 403.\n\nPASSWORD POLICY: PASSWORD_MIN_LENGTH characters (default 8) and not a known-breached password (HIBP).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -107,6 +107,78 @@
       "value": "",
       "type": "string",
       "description": "Set by Auth Scenarios / Session Cache Lifecycle / 2."
+    },
+    {
+      "key": "vendorRoleId",
+      "value": ""
+    },
+    {
+      "key": "vendorRoleAutoApprove",
+      "value": ""
+    },
+    {
+      "key": "vendorRoleSelfRegister",
+      "value": ""
+    },
+    {
+      "key": "baRoleId",
+      "value": ""
+    },
+    {
+      "key": "baRoleAutoApprove",
+      "value": ""
+    },
+    {
+      "key": "baRoleSelfRegister",
+      "value": ""
+    },
+    {
+      "key": "superAdminRoleId",
+      "value": ""
+    },
+    {
+      "key": "superAdminRoleAutoApprove",
+      "value": ""
+    },
+    {
+      "key": "superAdminRoleSelfRegister",
+      "value": ""
+    },
+    {
+      "key": "rrVendorId",
+      "value": ""
+    },
+    {
+      "key": "rrBaId",
+      "value": ""
+    },
+    {
+      "key": "baRequestId",
+      "value": ""
+    },
+    {
+      "key": "vendorRequestId",
+      "value": ""
+    },
+    {
+      "key": "saUserId",
+      "value": ""
+    },
+    {
+      "key": "rrBaReferralCode",
+      "value": ""
+    },
+    {
+      "key": "rrBaActiveBefore",
+      "value": ""
+    },
+    {
+      "key": "rrBaPendingBefore",
+      "value": ""
+    },
+    {
+      "key": "selfBaRequestId",
+      "value": ""
     }
   ],
   "item": [
@@ -136,6 +208,107 @@
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "pm.test('status ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Routing",
+      "description": "Unknown routes answer JSON 404 ROUTE_NOT_FOUND. These run before any login so no session cookie is sent: verifyCsrf skips a request with no session, so an unknown POST is a 404, not a 403. If your Postman cookie jar still holds a session for this host from an earlier run, clear it first.",
+      "item": [
+        {
+          "name": "Unknown route (GET) - expect 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/does-not-exist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "does-not-exist"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code is ROUTE_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ROUTE_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown route outside /api/v1 (GET) - expect 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serverUrl}}/does-not-exist",
+              "host": [
+                "{{serverUrl}}"
+              ],
+              "path": [
+                "does-not-exist"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('code is ROUTE_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ROUTE_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown route (POST, no session) - expect 404 not 403",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/does-not-exist",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "does-not-exist"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            }
+          },
+          "description": "No session cookie and no x-csrf-token. CSRF only guards requests that carry a session, so this reaches the 404 handler.",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found - CSRF skipped without a session', () => pm.response.to.have.status(404));",
+                  "pm.test('code is ROUTE_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ROUTE_NOT_FOUND'));"
                 ]
               }
             }
@@ -287,7 +460,7 @@
                   ]
                 }
               },
-              "description": "The development seed auto-approves VENDOR, so this is granted at once and the account also gets a referral code (Get My Referral Code below relies on that). In production the request stays PENDING until an admin approves it.",
+              "description": "The development seed auto-approves VENDOR, so this is granted at once and the account also gets a referral code (Get My Referral Code below relies on that). In production the request stays PENDING until an admin approves it (see Role Scenarios / Role Requests).",
               "event": [
                 {
                   "listen": "test",
@@ -334,46 +507,6 @@
               ]
             },
             {
-              "name": "Login BA (picks up the new role)",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"email\": \"ba@test.com\",\n  \"password\": \"{{password}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/associate/auth/login",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "associate",
-                    "auth",
-                    "login"
-                  ]
-                }
-              },
-              "description": "A session snapshots the roles held at login, so a newly granted role is only switchable after logging in again.",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                      "pm.test('active role is BUSINESS_ASSOCIATE', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('BUSINESS_ASSOCIATE'));"
-                    ]
-                  }
-                }
-              ]
-            },
-            {
               "name": "Switch Role",
               "request": {
                 "method": "POST",
@@ -409,12 +542,13 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
-                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('200 OK - switched WITHOUT logging in again', () => pm.response.to.have.status(200));",
                       "pm.test('active role is now VENDOR', () => pm.expect(pm.response.json().data.activeRole).to.eql('VENDOR'));"
                     ]
                   }
                 }
-              ]
+              ],
+              "description": "No login since Request Additional Role: a role granted by self-service auto-approval is pushed into the caller's live sessions (sessionService.syncRoles), so the session that asked for VENDOR can switch to it at once. switch-role checks the roles held by the session, not the database."
             },
             {
               "name": "Switch Role (back to BUSINESS_ASSOCIATE)",
@@ -701,6 +835,93 @@
               ]
             },
             {
+              "name": "Register Onboard - invalid email (expect 400)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{associateCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/referrals/onboard",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"not-an-email\",\n  \"firstName\": \"New\",\n  \"lastName\": \"User\",\n  \"role\": \"VENDOR\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('code is VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Register Onboard - role not VENDOR/CUSTOMER (expect 400)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{associateCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/referrals/onboard",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"another-new-user@example.com\",\n  \"firstName\": \"New\",\n  \"lastName\": \"User\",\n  \"role\": \"ADMIN\"\n}"
+                }
+              },
+              "description": "role must be VENDOR or CUSTOMER.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('code is VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
               "name": "List Onboard Referrals",
               "request": {
                 "method": "GET",
@@ -750,6 +971,42 @@
                     "exec": [
                       "pm.test('200 OK', () => pm.response.to.have.status(200));",
                       "pm.test('shows the onboarded user', () => pm.expect(pm.response.json().data.referrals.length).to.be.above(0));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "List Onboard Referrals - page=abc (expect 400)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/referrals/onboard?page=abc",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "abc"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('code is VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
                     ]
                   }
                 }
@@ -1510,46 +1767,6 @@
               ]
             },
             {
-              "name": "Login Vendor (picks up the new role)",
-              "request": {
-                "method": "POST",
-                "header": [
-                  {
-                    "key": "Content-Type",
-                    "value": "application/json"
-                  }
-                ],
-                "body": {
-                  "mode": "raw",
-                  "raw": "{\n  \"email\": \"vendor@test.com\",\n  \"password\": \"{{password}}\"\n}"
-                },
-                "url": {
-                  "raw": "{{baseUrl}}/vendor/auth/login",
-                  "host": [
-                    "{{baseUrl}}"
-                  ],
-                  "path": [
-                    "vendor",
-                    "auth",
-                    "login"
-                  ]
-                }
-              },
-              "description": "A session snapshots the roles held at login, so a newly granted role is only switchable after logging in again.",
-              "event": [
-                {
-                  "listen": "test",
-                  "script": {
-                    "type": "text/javascript",
-                    "exec": [
-                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
-                      "pm.test('active role is VENDOR', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('VENDOR'));"
-                    ]
-                  }
-                }
-              ]
-            },
-            {
               "name": "Switch Role",
               "request": {
                 "method": "POST",
@@ -1585,12 +1802,13 @@
                   "script": {
                     "type": "text/javascript",
                     "exec": [
-                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('200 OK - switched WITHOUT logging in again', () => pm.response.to.have.status(200));",
                       "pm.test('active role is now BUSINESS_ASSOCIATE', () => pm.expect(pm.response.json().data.activeRole).to.eql('BUSINESS_ASSOCIATE'));"
                     ]
                   }
                 }
-              ]
+              ],
+              "description": "No login since Request Additional Role: a role granted by self-service auto-approval is pushed into the caller's live sessions (sessionService.syncRoles), so the session that asked for BUSINESS_ASSOCIATE can switch to it at once. switch-role checks the roles held by the session, not the database."
             },
             {
               "name": "Switch Role (back to VENDOR)",
@@ -6397,6 +6615,2428 @@
                   ]
                 }
               }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Role Scenarios",
+      "description": "Admin role-request decisions, role toggles and portal-aware login, all checked against live sessions. Runs after Auth Scenarios; every role setting it changes is put back.",
+      "item": [
+        {
+          "name": "Role Requests",
+          "description": "Admin approval of a self-service role request. Auto-approval is switched off for VENDOR and BUSINESS_ASSOCIATE first (and restored afterwards), so the requests stay PENDING whatever the environment - the development seed auto-approves both, production does not. Two admin-created accounts are used because admin-created users are approved and email-verified in every environment; creating them also gives each a referral code. A third account self-registers as BUSINESS_ASSOCIATE with the admin-created associate's referral code. Every approval runs the role-approved hook: the PENDING referral for that user and role becomes ACTIVE (the referrer's list and dashboard show it) and a BUSINESS_ASSOCIATE or VENDOR gets a referral code if it has none, so the approved associate can onboard users. An approval is also pushed into the requester's live sessions (sessionService.syncRoles), so the new role is switchable without logging in again. Run in order.",
+          "item": [
+            {
+              "name": "1. Login admin",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"admin@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. List roles - saves ids and current auto-approve settings",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles?page=1&limit=50",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "50"
+                    }
+                  ]
+                }
+              },
+              "description": "Saves {{vendorRoleId}}, {{baRoleId}}, {{superAdminRoleId}} and their current autoApproveOnSignup / canSelfRegister, so the restore steps put back whatever was there.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const roles = pm.response.json().data.roles;",
+                      "const byCode = (code) => roles.find(r => r.code === code);",
+                      "for (const [code, key] of [['VENDOR', 'vendorRole'], ['BUSINESS_ASSOCIATE', 'baRole'], ['SUPER_ADMIN', 'superAdminRole']]) {",
+                      "  const role = byCode(code);",
+                      "  pm.test(`finds ${code}`, () => pm.expect(!!role).to.be.true);",
+                      "  pm.collectionVariables.set(key + 'Id', role._id);",
+                      "  pm.collectionVariables.set(key + 'AutoApprove', String(role.autoApproveOnSignup));",
+                      "  pm.collectionVariables.set(key + 'SelfRegister', String(role.canSelfRegister));",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. Create vendor (the approve case)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/vendors",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "vendors"
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "fullName",
+                      "value": "RoleReq Vendor",
+                      "type": "text"
+                    },
+                    {
+                      "key": "email",
+                      "value": "rolereq.vendor@test.com",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{password}}",
+                      "type": "text"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                      "const id = pm.response.json().data.vendor._id;",
+                      "pm.test('saves {{rrVendorId}}', () => pm.expect(typeof id === 'string' && id.length > 0).to.be.true);",
+                      "pm.collectionVariables.set('rrVendorId', id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Create associate (the reject case)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/associates",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "associates"
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "fullName",
+                      "value": "RoleReq Associate",
+                      "type": "text"
+                    },
+                    {
+                      "key": "email",
+                      "value": "rolereq.ba@test.com",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{password}}",
+                      "type": "text"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                      "const id = pm.response.json().data.associate._id;",
+                      "pm.test('saves {{rrBaId}}', () => pm.expect(typeof id === 'string' && id.length > 0).to.be.true);",
+                      "pm.collectionVariables.set('rrBaId', id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Turn off auto-approve for BUSINESS_ASSOCIATE",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{baRoleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{baRoleId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"autoApproveOnSignup\": false\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('auto-approve off', () => pm.expect(pm.response.json().data.role.autoApproveOnSignup).to.be.false);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "6. Turn off auto-approve for VENDOR",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{vendorRoleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{vendorRoleId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"autoApproveOnSignup\": false\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('auto-approve off', () => pm.expect(pm.response.json().data.role.autoApproveOnSignup).to.be.false);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "7. Login the vendor",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.vendor@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as VENDOR', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('VENDOR'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "8. Admin-created vendor has a referral code",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/referral-code",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "referral-code"
+                  ]
+                }
+              },
+              "description": "POST /admin/vendors runs the role-approved hook, which creates the referral code a VENDOR holds. The seed creates none.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('REF- code', () => pm.expect(pm.response.json().data.code).to.match(/^REF-/));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "9. Vendor requests BUSINESS_ASSOCIATE - PENDING",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{vendorCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/request-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "request-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"BUSINESS_ASSOCIATE\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('PENDING', () => pm.expect(pm.response.json().data.role.status).to.eql('PENDING'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "10. Vendor cannot switch to the pending role",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{vendorCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "switch-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"BUSINESS_ASSOCIATE\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                      "pm.test('code is AUTH_ROLE_SWITCH_DENIED', () => pm.expect(pm.response.json().code).to.eql('AUTH_ROLE_SWITCH_DENIED'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "11. Login the associate",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.ba@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as BUSINESS_ASSOCIATE', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('BUSINESS_ASSOCIATE'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "12. Admin-created associate has a referral code",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/referral-code",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "referral-code"
+                  ]
+                }
+              },
+              "description": "POST /admin/associates runs the role-approved hook, which creates the referral code a BUSINESS_ASSOCIATE holds. Saves {{rrBaReferralCode}}.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const code = pm.response.json().data.code;",
+                      "pm.test('REF- code', () => pm.expect(code).to.match(/^REF-/));",
+                      "pm.collectionVariables.set('rrBaReferralCode', code);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "13. Associate dashboard before - saves the counts",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/dashboard/stats",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "dashboard",
+                    "stats"
+                  ]
+                }
+              },
+              "description": "Saves {{rrBaActiveBefore}} and {{rrBaPendingBefore}} so the check after the approval is relative.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const stats = pm.response.json().data.onboardReferrals;",
+                      "pm.collectionVariables.set('rrBaActiveBefore', String(stats.active));",
+                      "pm.collectionVariables.set('rrBaPendingBefore', String(stats.pending));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "14. Associate requests VENDOR - PENDING",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{associateCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/request-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "request-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"VENDOR\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('PENDING', () => pm.expect(pm.response.json().data.role.status).to.eql('PENDING'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "15. Self-register a BUSINESS_ASSOCIATE with that referral code - PENDING",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "register"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.selfba@test.com\",\n  \"password\": \"{{password}}\",\n  \"firstName\": \"RoleReq\",\n  \"lastName\": \"SelfBA\",\n  \"referralCode\": \"{{rrBaReferralCode}}\"\n}"
+                }
+              },
+              "description": "Auto-approve is off, so the account holds only a PENDING BUSINESS_ASSOCIATE role and no referral code, and its referral to the associate is PENDING. Registering sets no session cookie.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                      "pm.test('PENDING', () => pm.expect(pm.response.json().data.role.status).to.eql('PENDING'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "16. Associate sees the referral PENDING",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/referrals/onboard?status=PENDING",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "PENDING"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const { referrals } = pm.response.json().data;",
+                      "pm.test('every row is PENDING', () => pm.expect(referrals.every(r => r.status === 'PENDING')).to.be.true);",
+                      "const mine = referrals.find(r => r.fullName === 'RoleReq SelfBA');",
+                      "pm.test('lists the referral of rolereq.selfba@test.com', () => pm.expect(!!mine).to.be.true);",
+                      "pm.test('for BUSINESS_ASSOCIATE', () => pm.expect(mine && mine.roleAppliedFor).to.eql('BUSINESS_ASSOCIATE'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "17. Restore auto-approve for BUSINESS_ASSOCIATE",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{baRoleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{baRoleId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"autoApproveOnSignup\": {{baRoleAutoApprove}}\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('restored', () => pm.expect(String(pm.response.json().data.role.autoApproveOnSignup)).to.eql(pm.collectionVariables.get('baRoleAutoApprove')));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "18. Restore auto-approve for VENDOR",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{vendorRoleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{vendorRoleId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"autoApproveOnSignup\": {{vendorRoleAutoApprove}}\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('restored', () => pm.expect(String(pm.response.json().data.role.autoApproveOnSignup)).to.eql(pm.collectionVariables.get('vendorRoleAutoApprove')));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "19. List pending requests (default status)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests?page=1&limit=50",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "50"
+                    }
+                  ]
+                }
+              },
+              "description": "status defaults to PENDING. Optional filters: status (PENDING, APPROVED, REJECTED, SUSPENDED), roleCode, page, limit. Each row has userId populated with email, firstName, lastName. Saves {{baRequestId}}.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const { requests, pagination } = pm.response.json().data;",
+                      "pm.test('every row is PENDING', () => pm.expect(requests.every(r => r.status === 'PENDING')).to.be.true);",
+                      "pm.test('has pagination', () => pm.expect(pagination.page).to.eql(1));",
+                      "const mine = requests.find(r => r.userId && r.userId.email === 'rolereq.vendor@test.com');",
+                      "pm.test('lists the request from rolereq.vendor@test.com', () => pm.expect(!!mine).to.be.true);",
+                      "if (mine) pm.collectionVariables.set('baRequestId', mine._id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "20. List pending VENDOR requests",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests?status=PENDING&roleCode=VENDOR",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "PENDING"
+                    },
+                    {
+                      "key": "roleCode",
+                      "value": "VENDOR"
+                    }
+                  ]
+                }
+              },
+              "description": "Saves {{vendorRequestId}}.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const { requests, pagination } = pm.response.json().data;",
+                      "pm.test('every row is PENDING', () => pm.expect(requests.every(r => r.status === 'PENDING')).to.be.true);",
+                      "pm.test('has pagination', () => pm.expect(pagination.page).to.eql(1));",
+                      "const mine = requests.find(r => r.userId && r.userId.email === 'rolereq.ba@test.com');",
+                      "pm.test('lists the request from rolereq.ba@test.com', () => pm.expect(!!mine).to.be.true);",
+                      "if (mine) pm.collectionVariables.set('vendorRequestId', mine._id);",
+                      "pm.test('only VENDOR rows', () => pm.expect(pm.response.json().data.requests.every(r => r.roleCode === 'VENDOR')).to.be.true);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "21. List pending BUSINESS_ASSOCIATE requests",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests?status=PENDING&roleCode=BUSINESS_ASSOCIATE",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "PENDING"
+                    },
+                    {
+                      "key": "roleCode",
+                      "value": "BUSINESS_ASSOCIATE"
+                    }
+                  ]
+                }
+              },
+              "description": "Saves {{selfBaRequestId}}.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const { requests, pagination } = pm.response.json().data;",
+                      "pm.test('every row is PENDING', () => pm.expect(requests.every(r => r.status === 'PENDING')).to.be.true);",
+                      "pm.test('has pagination', () => pm.expect(pagination.page).to.eql(1));",
+                      "const mine = requests.find(r => r.userId && r.userId.email === 'rolereq.selfba@test.com');",
+                      "pm.test('lists the request from rolereq.selfba@test.com', () => pm.expect(!!mine).to.be.true);",
+                      "if (mine) pm.collectionVariables.set('selfBaRequestId', mine._id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "22. List with an unknown status - expect 400",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests?status=NOPE",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "NOPE"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('code is VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "23. Approve the BUSINESS_ASSOCIATE request",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/{{baRequestId}}/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "{{baRequestId}}",
+                    "approve"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const r = pm.response.json().data.request;",
+                      "pm.test('APPROVED', () => pm.expect(r.status).to.eql('APPROVED'));",
+                      "pm.test('active', () => pm.expect(r.isActive).to.be.true);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "24. Vendor switches to the approved role WITHOUT logging in again",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{vendorCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "switch-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"BUSINESS_ASSOCIATE\"\n}"
+                }
+              },
+              "description": "switch-role checks the roles held by the session, not the database. The vendor has not logged in since the switch to the pending role was refused, so this passing proves the approval was written into the live session.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK - live session got the role', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as BUSINESS_ASSOCIATE', () => pm.expect(pm.response.json().data.activeRole).to.eql('BUSINESS_ASSOCIATE'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "25. Vendor switches back to VENDOR",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{vendorCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "switch-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"VENDOR\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as VENDOR', () => pm.expect(pm.response.json().data.activeRole).to.eql('VENDOR'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "26. Vendor sees the role in Get Available Roles",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/roles",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "roles"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('holds BUSINESS_ASSOCIATE', () => pm.expect(pm.response.json().data.roles.map(r => r.code)).to.include('BUSINESS_ASSOCIATE'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "27. Approve the self-registered BUSINESS_ASSOCIATE request",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/{{selfBaRequestId}}/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "{{selfBaRequestId}}",
+                    "approve"
+                  ]
+                }
+              },
+              "description": "The role-approved hook activates the PENDING referral and creates the account's referral code.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('APPROVED', () => pm.expect(pm.response.json().data.request.status).to.eql('APPROVED'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "28. Associate sees the referral ACTIVE",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/referrals/onboard?status=ACTIVE",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "ACTIVE"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const { referrals } = pm.response.json().data;",
+                      "pm.test('every row is ACTIVE', () => pm.expect(referrals.every(r => r.status === 'ACTIVE')).to.be.true);",
+                      "const mine = referrals.find(r => r.fullName === 'RoleReq SelfBA');",
+                      "pm.test('lists the referral of rolereq.selfba@test.com', () => pm.expect(!!mine).to.be.true);",
+                      "pm.test('for BUSINESS_ASSOCIATE', () => pm.expect(mine && mine.roleAppliedFor).to.eql('BUSINESS_ASSOCIATE'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "29. Associate dashboard counts it active",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/dashboard/stats",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "dashboard",
+                    "stats"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const stats = pm.response.json().data.onboardReferrals;",
+                      "pm.test('active up by one', () => pm.expect(stats.active).to.eql(Number(pm.collectionVariables.get('rrBaActiveBefore')) + 1));",
+                      "pm.test('pending back where it was', () => pm.expect(stats.pending).to.eql(Number(pm.collectionVariables.get('rrBaPendingBefore'))));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "30. Reject the VENDOR request with a reason",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/{{vendorRequestId}}/reject",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "{{vendorRequestId}}",
+                    "reject"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"reason\": \"Missing business documents\"\n}"
+                }
+              },
+              "description": "The body is optional: {} or no body rejects without a reason.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const r = pm.response.json().data.request;",
+                      "pm.test('REJECTED', () => pm.expect(r.status).to.eql('REJECTED'));",
+                      "pm.test('reason stored', () => pm.expect(r.rejectionReason).to.eql('Missing business documents'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "31. Associate still cannot switch to VENDOR",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{associateCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "switch-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"VENDOR\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                      "pm.test('code is AUTH_ROLE_SWITCH_DENIED', () => pm.expect(pm.response.json().code).to.eql('AUTH_ROLE_SWITCH_DENIED'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "32. Approved self-registered associate logs in",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.selfba@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "description": "Replaces the associate-portal session and {{associateCsrf}}.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as BUSINESS_ASSOCIATE', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('BUSINESS_ASSOCIATE'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "33. Approved associate has a referral code",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/referral-code",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "referral-code"
+                  ]
+                }
+              },
+              "description": "The account had no referral code before the admin approved it; the approval created this one.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('REF- code', () => pm.expect(pm.response.json().data.code).to.match(/^REF-/));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "34. Approved associate onboards a user",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{associateCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/referrals/onboard",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "referrals",
+                    "onboard"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.onboarded@example.com\",\n  \"firstName\": \"Onboarded\",\n  \"lastName\": \"Customer\",\n  \"role\": \"CUSTOMER\"\n}"
+                }
+              },
+              "description": "Onboarding needs the caller's referral code, so this is refused with REFERRAL_CODE_NOT_FOUND unless the approval created one.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 Created', () => pm.response.to.have.status(201));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "35. List approved BUSINESS_ASSOCIATE requests",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests?status=APPROVED&roleCode=BUSINESS_ASSOCIATE",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "APPROVED"
+                    },
+                    {
+                      "key": "roleCode",
+                      "value": "BUSINESS_ASSOCIATE"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "const { requests, pagination } = pm.response.json().data;",
+                      "pm.test('every row is APPROVED', () => pm.expect(requests.every(r => r.status === 'APPROVED')).to.be.true);",
+                      "pm.test('has pagination', () => pm.expect(pagination.page).to.eql(1));",
+                      "const mine = requests.find(r => r.userId && r.userId.email === 'rolereq.vendor@test.com');",
+                      "pm.test('lists the request from rolereq.vendor@test.com', () => pm.expect(!!mine).to.be.true);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "36. Approve it again - expect 400",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/{{baRequestId}}/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "{{baRequestId}}",
+                    "approve"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('code is ROLE_REQUEST_NOT_PENDING', () => pm.expect(pm.response.json().code).to.eql('ROLE_REQUEST_NOT_PENDING'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "37. Reject the rejected one again - expect 400",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/{{vendorRequestId}}/reject",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "{{vendorRequestId}}",
+                    "reject"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('code is ROLE_REQUEST_NOT_PENDING', () => pm.expect(pm.response.json().code).to.eql('ROLE_REQUEST_NOT_PENDING'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "38. Approve an unknown id - expect 404",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/000000000000000000000000/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "000000000000000000000000",
+                    "approve"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                      "pm.test('code is ROLE_REQUEST_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ROLE_REQUEST_NOT_FOUND'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "39. Reject an unknown id - expect 404",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/000000000000000000000000/reject",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "000000000000000000000000",
+                    "reject"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                      "pm.test('code is ROLE_REQUEST_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('ROLE_REQUEST_NOT_FOUND'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "40. Approve a malformed id - expect 400",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/role-requests/not-an-id/approve",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "role-requests",
+                    "not-an-id",
+                    "approve"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                      "pm.test('code is VALIDATION_ERROR', () => pm.expect(pm.response.json().code).to.eql('VALIDATION_ERROR'));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Role Toggle Live Sync",
+          "description": "Deactivating a role is pushed into every live session of every holder: the role is removed from sessions acting as another role, and a session acting as the deactivated role is revoked. Uses the vendor from Role Requests, who now holds VENDOR and BUSINESS_ASSOCIATE. The last steps re-activate VENDOR so nothing after this folder is affected. Run in order.",
+          "item": [
+            {
+              "name": "1. Vendor logs in to the associate portal too",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.vendor@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "description": "Logs in the account from Role Requests, so the associate portal now has their session. The vendor-portal session from Role Requests is still live.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as BUSINESS_ASSOCIATE', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('BUSINESS_ASSOCIATE'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Vendor portal session works",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "me"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('it is the role-request vendor', () => pm.expect(pm.response.json().data.user.email).to.eql('rolereq.vendor@test.com'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. Admin deactivates VENDOR",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{vendorRoleId}}/toggle-status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{vendorRoleId}}",
+                    "toggle-status"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('now inactive', () => pm.expect(pm.response.json().data.role.isActive).to.be.false);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Session acting as VENDOR is revoked - expect 401",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "me"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('401 Unauthorized - revoked, no re-login involved', () => pm.response.to.have.status(401));",
+                      "pm.test('code is AUTH_SESSION_NOT_FOUND', () => pm.expect(pm.response.json().code).to.eql('AUTH_SESSION_NOT_FOUND'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Associate session survives",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "me"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('VENDOR removed from the session', () => pm.expect(pm.response.json().data.user.availableRoles).to.not.include('VENDOR'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "6. Associate session can no longer switch to VENDOR",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{associateCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/associate/auth/switch-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "associate",
+                    "auth",
+                    "switch-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"VENDOR\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                      "pm.test('code is AUTH_ROLE_SWITCH_DENIED', () => pm.expect(pm.response.json().code).to.eql('AUTH_ROLE_SWITCH_DENIED'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "7. Vendor portal login refused while VENDOR is inactive",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.vendor@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                      "pm.test('code is AUTH_PORTAL_ACCESS_DENIED', () => pm.expect(pm.response.json().code).to.eql('AUTH_PORTAL_ACCESS_DENIED'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "8. Admin re-activates VENDOR",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{vendorRoleId}}/toggle-status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{vendorRoleId}}",
+                    "toggle-status"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('active again', () => pm.expect(pm.response.json().data.role.isActive).to.be.true);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "9. Vendor logs in again",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"rolereq.vendor@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as VENDOR', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('VENDOR'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "10. Vendor portal session works again",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/me",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "me"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Admin Portal Login as SUPER_ADMIN",
+          "description": "The admin portal admits any role that maps to it, so an account holding SUPER_ADMIN but not ADMIN can log in there (pickPortalRole). The seed has no such account, so one is made through the API: SUPER_ADMIN is briefly made self-registrable, a fresh vendor requests it (SUPER_ADMIN auto-approves), and self-registration is closed again at once. The account is suspended at the end. Run in order; if a run stops part-way, make sure SUPER_ADMIN canSelfRegister is false again.",
+          "item": [
+            {
+              "name": "1. Create the candidate account (a vendor)",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/vendors",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "vendors"
+                  ]
+                },
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "fullName",
+                      "value": "Super Candidate",
+                      "type": "text"
+                    },
+                    {
+                      "key": "email",
+                      "value": "superadmin.candidate@test.com",
+                      "type": "text"
+                    },
+                    {
+                      "key": "password",
+                      "value": "{{password}}",
+                      "type": "text"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                      "const id = pm.response.json().data.vendor._id;",
+                      "pm.test('saves {{saUserId}}', () => pm.expect(typeof id === 'string' && id.length > 0).to.be.true);",
+                      "pm.collectionVariables.set('saUserId', id);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "2. Open SUPER_ADMIN to self-registration",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{superAdminRoleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{superAdminRoleId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"canSelfRegister\": true\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('self-registrable', () => pm.expect(pm.response.json().data.role.canSelfRegister).to.be.true);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "3. Candidate logs in to the vendor portal",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"superadmin.candidate@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "4. Candidate requests SUPER_ADMIN",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{vendorCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/vendor/auth/request-role",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "vendor",
+                    "auth",
+                    "request-role"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"roleCode\": \"SUPER_ADMIN\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('APPROVED', () => pm.expect(pm.response.json().data.role.status).to.eql('APPROVED'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "5. Close SUPER_ADMIN self-registration again",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles/{{superAdminRoleId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles",
+                    "{{superAdminRoleId}}"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"canSelfRegister\": {{superAdminRoleSelfRegister}}\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('restored', () => pm.expect(String(pm.response.json().data.role.canSelfRegister)).to.eql(pm.collectionVariables.get('superAdminRoleSelfRegister')));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "6. Candidate logs in to the admin portal",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"superadmin.candidate@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "description": "Holds SUPER_ADMIN and VENDOR, not ADMIN. Replaces the admin session cookie and {{adminCsrf}}; request 8 logs the admin back in.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('acting as SUPER_ADMIN', () => pm.expect(pm.response.json().data.user.activeRole).to.eql('SUPER_ADMIN'));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "7. SUPER_ADMIN passes admin authorization",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/roles?page=1&limit=1",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "roles"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "1"
+                    }
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "8. Login admin again",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/auth/login",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "auth",
+                    "login"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"admin@test.com\",\n  \"password\": \"{{password}}\"\n}"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "9. Suspend the candidate",
+              "request": {
+                "method": "PATCH",
+                "header": [
+                  {
+                    "key": "x-csrf-token",
+                    "value": "{{adminCsrf}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/vendors/{{saUserId}}/toggle-status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "vendors",
+                    "{{saUserId}}",
+                    "toggle-status"
+                  ]
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                      "pm.test('suspended', () => pm.expect(pm.response.json().data.isActive).to.be.false);"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "10. Unknown admin route with a session but no CSRF header - expect 403",
+              "request": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/admin/does-not-exist",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "admin",
+                    "does-not-exist"
+                  ]
+                },
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}"
+                }
+              },
+              "description": "Contrast with Routing: this request carries the admin session cookie, so CSRF applies before routing and the missing header is refused.",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                      "pm.test('code is AUTH_CSRF_MISSING', () => pm.expect(pm.response.json().code).to.eql('AUTH_CSRF_MISSING'));"
+                    ]
+                  }
+                }
+              ]
             }
           ]
         }

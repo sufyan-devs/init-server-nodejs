@@ -72,17 +72,21 @@ flowchart TD
     P["Profile edited<br/>name · avatar"]
     V["Email verified"]
     S["Account suspended"]
+    RC["Role request approved<br/>role activated or deactivated<br/>request-role auto-approved"]
   end
 
   P --> SY["syncSessionUser(userId, user)"]
   V --> SY
   S --> RV["revokeUserSessions(userId)"]
+  RC --> SR["syncSessionRoles(userId)"]
 
   SY --> RW["rewrite user{} in every<br/>session for that user"]
   RV --> DEL["delete every session<br/>reason: account_inactive"]
+  SR --> RR["rewrite availableRoles, or delete<br/>the session if its activeRole is gone<br/>reason: role_removed"]
 
   RW --> R[("Redis<br/>sess:sid")]
   DEL --> R
+  RR --> R
   R --> HP["next request reads<br/>fresh data, or gets 401"]
 
   classDef danger fill:#c92a2a,stroke:#c92a2a,color:#fff
@@ -91,20 +95,23 @@ flowchart TD
 
 **The red path is the security-critical one.** `authenticate` does not check `user.status`, so
 revocation on suspension is the only thing that ends a suspended account's access
-(`auth/index.ts:23-26`, `user/controllers/admin/managedUser.ts:249-254`).
+(`auth/index.ts:27-28`, `user/controllers/admin/managedUser.ts:250-255`).
 
-**Roles are the exception: they are cached and not kept honest.** `authorizeRoles` reads the
-session's `availableRoles`, a snapshot taken at login (`authenticate.ts:57-60`). `switch-role`
-writes the same snapshot back (`portalAuth.ts:73-77`), and no endpoint revokes or changes a user
-role. A role change in MongoDB reaches a device only when that session ends and the user logs in
-again — that includes deactivating a role, which the next login skips (`UserRole/schema.ts:72-81`)
-but a live session keeps. Full detail: [flows.md — What the session copy does decide](flows.md#what-the-session-copy-does-decide-roles).
+**Roles are cached the same way.** `authorizeRoles` reads the session's `availableRoles`, copied in
+at login (`authenticate.ts:57-60`). The actions that change which roles a user holds — an admin
+approving a role request, an admin activating or deactivating a role, and an auto-approved
+`POST /request-role` — rewrite `availableRoles` in every live session of the user, or delete a
+session whose `activeRole` the user no longer holds (`syncSessionRoles`, `auth/index.ts:33-34`;
+`session.service.ts:269-283`; the request-role path calls `syncRoles` itself,
+`auth.service.ts:258-262`). A role change made any other way, such as by hand in MongoDB, reaches a
+device only at its next login. Full
+detail: [flows.md — What the session copy does decide](flows.md#what-the-session-copy-does-decide-roles).
 
 ---
 
 ## API surface
 
-Mounted at `/api/v1/<portal>/auth/...` (`auth/index.ts:31-36`). Portals: `admin`, `vendor`,
+Mounted at `/api/v1/<portal>/auth/...` (`auth/index.ts:36-41`). Portals: `admin`, `vendor`,
 `associate`, `customer` (`cookieHelper.ts:6-11`). Each portal has its own router, so
 **availability differs** — read from `routes/<portal>/auth.ts`.
 
@@ -113,8 +120,8 @@ unless `CSRF_ENABLED=false` ([flows.md — Where CSRF fits](flows.md#where-csrf-
 
 | Endpoint | admin | vendor | associate | customer | CSRF | Notes |
 |---|:-:|:-:|:-:|:-:|:-:|---|
-| `POST /register` | — | ✓ | ✓ | ✓ | — | Gated by `role.canSelfRegister`; password policy applies; same body whether or not the email exists (`auth.service.ts:58-107`). 201, `message` at top level, `data: { user, role, requiresEmailVerification }` |
-| `POST /login` | ✓ | ✓ | ✓ | ✓ | — | Sets the cookies; `data: { user, csrfToken }`, or `{ requiresEmailVerification, email }` with no cookie ([flows.md §1](flows.md#1-login)) |
+| `POST /register` | — | ✓ | ✓ | ✓ | — | Gated by `role.canSelfRegister`; password policy applies; same body whether or not the email exists (`auth.service.ts:60-109`). 201, `message` at top level, `data: { user, role, requiresEmailVerification }` |
+| `POST /login` | ✓ | ✓ | ✓ | ✓ | — | Sets the cookies; `data: { user, csrfToken }`, or `{ requiresEmailVerification, email }` with no cookie ([flows.md §1](flows.md#1-login)). Any held role that maps to the portal is accepted, so a SUPER_ADMIN-only user logs in to `admin` as SUPER_ADMIN (`auth.service.ts:163-166`); same for `/oauth/:provider` |
 | `POST /oauth/:provider` | ✓ | ✓ | ✓ | ✓ | — | Only `google` is registered (`providers/registry.ts:4-6`). Unknown or disabled → 404 `PROVIDER_NOT_AVAILABLE`. `data: { user, isNewUser, csrfToken }` |
 | `POST /logout` | ✓ | ✓ | ✓ | ✓ | ✅ | Deletes this session. `message` at top level, no `data` (`portalAuth.ts:48-63`) |
 | `POST /logout-all` | ✓ | ✓ | ✓ | ✓ | ✅ | Deletes every session for the user. `message` at top level, no `data` |
@@ -123,10 +130,10 @@ unless `CSRF_ENABLED=false` ([flows.md — Where CSRF fits](flows.md#where-csrf-
 | `DELETE /sessions/:sid` | ✓ | ✓ | ✓ | ✓ | ✅ | Revoke one device; 404 if not the caller's. `message` at top level, `data: { sid }` |
 | `POST /switch-role` | ✓ | ✓ | ✓ | — | ✅ | Sets `activeRole` to a code in the session's `availableRoles`; `data: { activeRole }` |
 | `GET /roles` | — | ✓ | ✓ | — | — | Approved roles read from MongoDB; `data: { roles }` |
-| `POST /request-role` | — | ✓ | ✓ | — | ✅ | Creates a user role for a `canSelfRegister` role. `PENDING`, unless that role has `autoApproveOnSignup` (`UserRole/schema.ts:107-112`). **No endpoint approves a `PENDING` request.** `message` at top level — `Role granted.` if approved, otherwise `Request submitted. Awaiting admin approval.` (`portalAuth.ts:93-96`) — and `data: { role }` |
+| `POST /request-role` | — | ✓ | ✓ | — | ✅ | Creates a user role for a `canSelfRegister` role. `PENDING`, unless that role has `autoApproveOnSignup` (`UserRole/schema.ts:107-112`). An auto-approved role is written into the caller's live sessions at once, no new login needed (`auth.service.ts:258-262`). An admin approves or rejects a `PENDING` request at `/admin/role-requests` in the user module ([../README.md](../README.md#not-documented-yet)). `message` at top level — `Role granted.` if approved, otherwise `Request submitted. Awaiting admin approval.` (`portalAuth.ts:93-96`) — and `data: { role }` |
 | `POST /verify-email` · `POST /send-otp` | — | ✓ | ✓ | ✓ | — | Same response whether or not the account exists |
 | `POST /forgot-password` · `POST /verify-otp` · `POST /reset-password` | ✓ | ✓ | ✓ | ✓ | — | Reset clears the lockout and revokes every session (`passwordReset.ts:140-141`) |
-| `GET /referral-code` | — | ✓ | ✓ | — | — | Served by the **referral** module at this URL (`referral/index.ts:14-15`), not by auth |
+| `GET /referral-code` | — | ✓ | ✓ | — | — | Served by the **referral** module at this URL (`referral/index.ts:15-16`), not by auth |
 
 Handlers: `controllers/<portal>/index.ts` builds `register`, `login`, `logout`, `logoutAll`,
 `getMe`, `switchRole`, `getAvailableRoles`, `requestRole` and `socialLogin` from
@@ -146,13 +153,13 @@ src/
 ├─ middlewares/rateLimit.ts          # own Redis limiter (global + per route)
 ├─ modules/auth/
 │  ├─ index.ts                       # front door: register, authenticate, authorizeRoles, verifyCsrf, …
-│  ├─ signupHooks.ts                 # setSignupHook — how a product module joins registration
+│  ├─ signupHooks.ts                 # setSignupHook, setRoleApprovedHook — how a product module joins in
 │  ├─ middlewares/
 │  │  ├─ authenticate.ts             # authenticate(roleCode) + authorizeRoles
 │  │  └─ csrf.ts                     # session-bound double-submit
 │  ├─ services/
-│  │  ├─ auth.service.ts             # register, login, logout-all, switch / request role
-│  │  ├─ session.service.ts          # create / verify / revoke / list devices, reset sessions
+│  │  ├─ auth.service.ts             # register, login (portal-role pick), logout-all, switch / request role
+│  │  ├─ session.service.ts          # create / verify / revoke / list devices, user + role sync, reset sessions
 │  │  ├─ password.service.ts         # credential check, hashing, policy + HIBP
 │  │  ├─ lockout.service.ts          # per-account counters in Redis
 │  │  └─ identity.service.ts         # provider identity → find / link / create user
@@ -167,15 +174,33 @@ src/
 └─ utils/{cookieHelper,redisKeys}.ts # portal map + cookies; every Redis key builder
 ```
 
-**Front door** (`auth/index.ts:38-50`): `register`, `registerUser`, `hashPassword`,
-`assertPasswordAllowed`, `revokeUserSessions`, `syncSessionUser`, `authenticate`,
-`authorizeRoles`, `verifyCsrf`, `setSignupHook`, and the `SignupHook` type.
+**Front door** (`auth/index.ts:43-58`): `register`, `registerUser`, `hashPassword`,
+`assertPasswordAllowed`, `revokeUserSessions`, `syncSessionUser`, `syncSessionRoles`, `authenticate`,
+`authorizeRoles`, `verifyCsrf`, `setSignupHook`, `setRoleApprovedHook`, `runRoleApprovedHook`, and
+the `SignupHook` and `RoleApprovedHook` types.
 
-**Signup hook.** Auth knows nothing about referrals. The referral module registers one hook
-(`referral/index.ts:10`, implemented in `referral/signupHook.ts`). Auth runs it before creating the
-user, so a rejected referral code leaves nothing behind, and calls the function it returns once the
-role is assigned (`signupHooks.ts:13-15`, `auth.service.ts:69,124,237,243`). Delete the referral
-module and registration still works — the hook is simply never set.
+**Hooks.** Auth knows nothing about referrals. The referral module registers two hooks on itself
+(`referral/index.ts:10-11`, implemented in `referral/signupHook.ts`); auth only stores and runs
+them (`signupHooks.ts:17-43`).
+
+- **Signup hook.** Auth runs it before creating the user, so a rejected referral code leaves
+  nothing behind, and calls the function it returns once the role is assigned
+  (`auth.service.ts:71,126,250,257`). Referral's version records a `PENDING` referral when a code
+  was given (`referral/signupHook.ts:16-34`).
+- **Role-approved hook.** Runs on every path that leaves a role `APPROVED`: auto-approval in
+  `register` and `requestRole` (`auth.service.ts:127-129,258-259`), an admin approving a request
+  (`user/controllers/admin/roleRequest.ts:71`), and an admin creating a user
+  (`user/controllers/admin/managedUser.ts:205`). Referral's version activates that user's `PENDING`
+  referral for the role (`ACTIVE`, `activatedAt`, +1 `successfulReferrals` on the code) and gives a
+  BUSINESS_ASSOCIATE or VENDOR a referral code if they have none (`referral/signupHook.ts:36-52`).
+
+> **Real world:** in production Nadia signs up as a vendor with Ali's referral code. VENDOR needs
+> admin approval there (`autoApproveOnSignup: !IN_PROD`, `user/seed/roles.ts:36`), so the referral
+> is stored as `PENDING`. When an admin approves her request, the hook marks
+> it `ACTIVE`, adds one to Ali's successful referrals, and creates Nadia's own referral code.
+
+Delete the referral module and registration still works — neither hook is set, and running an
+unset hook does nothing (`signupHooks.ts:36,38-40`).
 
 **Target design — not built**, named so nobody hunts for them: `config/prisma.ts`,
 `middlewares/authorize.ts` (`requirePermission`), `seed/permissions.ts`, `req.actor`, the `prisma/`

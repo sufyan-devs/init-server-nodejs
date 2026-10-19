@@ -110,8 +110,10 @@ Verified 2026-10-19.
 | `maxAge` | `COOKIE_MAX_AGE_MS`, default the 7-day session lifetime; renewed on each authenticated request, never past the 30-day cap | `env.ts:201`, `session.service.ts:85-86` |
 
 **ADMIN and SUPER_ADMIN share one cookie.** Both role codes map to the `admin` portal
-(`cookieHelper.ts:15-21`). The portal list is a constant keyed by role code; moving it to
-configuration is not built.
+(`cookieHelper.ts:15-21`), and either one may log in there: when the user does not hold ADMIN,
+login takes the held role on the same portal, so a SUPER_ADMIN-only user is admitted as
+SUPER_ADMIN (`auth.service.ts:163-166`). The portal list is a constant keyed by role code; moving
+it to configuration is not built.
 
 **Only signed cookies are read.** `readCookie` looks in `req.signedCookies` and nowhere else
 (`cookieHelper.ts:72-77`). cookie-parser leaves an unsigned or tampered value in `req.cookies`, so
@@ -122,7 +124,7 @@ is still protected by the secret checked against its hash in Redis.
 `/reset-password`, with the same options (`cookieHelper.ts:23,52-58`). It is not a session and is
 outside the portal map. The id is 32 random bytes; Redis keeps it **as is** in the key name,
 `reset_session:<resetId>`, holding the email, for `RESET_TOKEN_EXPIRY_MINUTES` (default 5)
-(`session.service.ts:266-270`, `env.ts:229`).
+(`session.service.ts:285-289`, `env.ts:229`).
 
 **The CSRF cookie.** `csrf_token_<portal>` is deliberately **readable** (`httpOnly: false`) and
 unsigned, and lives 30 days (`csrf.ts:28-29,39-47`). The client echoes its value in `x-csrf-token`.

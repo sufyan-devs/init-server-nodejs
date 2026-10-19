@@ -85,13 +85,15 @@ const verifyCsrf = (req: Request, _res: Response, next: NextFunction): void => {
   if (!envConfig.CSRF.ENABLED) return next();
   if (SAFE_METHODS.has(req.method)) return next();
 
+  // No session cookie means no ambient credential for a forged request to ride on;
+  // authenticate() rejects it, and an unknown path reaches the 404 instead of a 403.
   const session = currentSession(req);
-  const header = req.get(envConfig.CSRF.HEADER_NAME);
-  const cookie = session
-    ? (req.cookies?.[csrfCookieName(session.cookieName)] as string | undefined)
-    : undefined;
+  if (!session) return next();
 
-  if (!cookie || !header || !session) {
+  const header = req.get(envConfig.CSRF.HEADER_NAME);
+  const cookie = req.cookies?.[csrfCookieName(session.cookieName)] as string | undefined;
+
+  if (!cookie || !header) {
     return next(ApiError.fromAuthError(AUTH_ERRORS.CSRF_MISSING));
   }
 

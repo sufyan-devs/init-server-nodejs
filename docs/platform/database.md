@@ -19,7 +19,7 @@ relational integrity and ad-hoc queries — four things an in-memory store does 
 ## Today: MongoDB + Mongoose
 
 The connection is `mongoose.connect(MONGO_URI)` in `src/config/database.ts:6-16`, opened at boot
-(`src/server.ts:123`) and closed on shutdown (`server.ts:153`).
+(`src/server.ts:127`) and closed on shutdown (`server.ts:157`).
 
 No schema sets a `collection` option, so each collection takes Mongoose's default name — the model
 name, lowercased and pluralised:
@@ -37,7 +37,7 @@ the schema (`Role/schema.ts:11`).
 
 **Where queries live today.** A model folder is `index.ts` + `types.ts` + `schema.ts`, and the
 Mongoose model is called from services and, in legacy code, straight from controllers — for
-example `src/modules/user/controllers/admin/role.ts:44` and the referral and dashboard
+example `src/modules/user/controllers/admin/role.ts:46` and the referral and dashboard
 controllers. That breaks the layer rule (CLAUDE.md hard rule 3); new code must not add more.
 
 `npm run db:reset` drops the whole Mongo database, flushes the app's Redis db and re-seeds. It
@@ -116,6 +116,6 @@ query in a loop (§2), filter and paginate before joining (§3), index for the q
 (§4), fetch only the fields needed (§5), cursor pagination over deep offsets (§6).
 
 **Today versus §6:** list endpoints cap the page size — 100 in the user module
-(`src/modules/user/validators/index.ts:22-23,32`), 100 or 50 in the product modules — but they
-paginate by offset (`skip`), for example `src/modules/user/controllers/admin/role.ts:32,44`. Cursor
+(`src/modules/user/validators/index.ts:23-24,33`), 100 or 50 in the product modules — but they
+paginate by offset (`skip`), for example `src/modules/user/controllers/admin/role.ts:34,46`. Cursor
 pagination is target, not built.

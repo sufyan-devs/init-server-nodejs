@@ -16,10 +16,10 @@ production.
 - **BUILT** — one generic `401 AUTH_INVALID_CREDENTIALS` for no account, no password, inactive,
   locked and wrong password; the real reason goes to the audit log (`password.service.ts:63-99`).
   Three later answers are distinct — `requiresEmailVerification`, `ACCOUNT_NOT_APPROVED`,
-  `PORTAL_ACCESS_DENIED` — but each needs the correct password first (`auth.service.ts:160-175`).
+  `PORTAL_ACCESS_DENIED` — but each needs the correct password first (`auth.service.ts:172-188`).
 - **BUILT** — `register` returns the same body whether or not the email exists, and emails the
-  existing owner instead of answering 409 (`auth.service.ts:74-107`). That email HTML-escapes the
-  owner's first name (`auth.service.ts:81`).
+  existing owner instead of answering 409 (`auth.service.ts:76-109`). That email HTML-escapes the
+  owner's first name (`auth.service.ts:83`).
 - **BUILT** — `forgot-password` and `send-otp` answer identically and store an OTP even for an
   unknown address, so attempt counts match (`passwordReset.ts:43-69`, `emailVerification.ts:68-88`).
   `verify-email` checks the OTP the same way for any address (`emailVerification.ts:14-47`).
@@ -53,9 +53,12 @@ There is no refresh token, so the parallel-refresh race and grace windows do not
   under the same sid (`session.service.ts:222-250`).
 - **BUILT** — revocation is a delete, through the per-user index, so logout-all, password reset and
   suspension take effect on the next request ([flows.md §3](flows.md#3-revocation)).
-- **NOT BUILT** — revoking a single *role* from live sessions. `availableRoles` is a login snapshot
-  and no endpoint changes user roles. Deactivating a role stops it being granted at the next login
-  (`UserRole/schema.ts:72-81`) but leaves live sessions alone
+- **BUILT** — role changes reach live sessions. Approving a role request, activating or
+  deactivating a role, and an auto-approved `request-role` rewrite `availableRoles` in every live
+  session of the user, and delete a session whose `activeRole` is no longer held
+  (`session.service.ts:269-283`, callers `user/controllers/admin/roleRequest.ts:72`,
+  `user/controllers/admin/role.ts:98-103`, `auth/services/auth.service.ts:261`). **NOT BUILT** — an endpoint that suspends or revokes an
+  approved user role; a change made by hand in the database is not synced
   ([flows.md §2](flows.md#what-the-session-copy-does-decide-roles)).
 
 ## Passwords — PARTLY BUILT
@@ -73,9 +76,9 @@ There is no refresh token, so the parallel-refresh race and grace windows do not
   - **BUILT** — single use: the OTP is deleted before the reset id is issued, and the reset id is
     deleted before the password is changed (`passwordReset.ts:97,128`).
   - **BUILT** — short lifetime: reset id 5 minutes by default (`env.ts:229`). The OTP that leads to
-    it lives `OTP_EXPIRY_MINUTES`, default 60 (`env.ts:218`).
+    it lives `OTP_EXPIRY_MINUTES`, default 10 (`env.ts:218`).
   - **NOT BUILT** — hashed at rest. The reset id is the Redis key name as is,
-    `reset_session:<resetId>` (`session.service.ts:266-270`), and OTP codes are stored as plain
+    `reset_session:<resetId>` (`session.service.ts:285-289`), and OTP codes are stored as plain
     values (`helpers/otp.ts:77-84`). Anyone who can read Redis can use a live one.
   - **BUILT** — every session revoked on use (`passwordReset.ts:141`).
 
@@ -97,6 +100,9 @@ There is no refresh token, so the parallel-refresh race and grace windows do not
   Every API request also passes the global per-IP limiter (`server.ts:95`). The full design is in
   [../../platform/rate-limiting.md](../../platform/rate-limiting.md).
 - **BUILT** — CSRF double-submit token bound to the session ([flows.md — Where CSRF fits](flows.md#where-csrf-fits)).
+  A write that carries **no** session cookie skips the check (`csrf.ts:90-91`): it has no
+  credential to forge with, and `authenticate` or the JSON 404 rejects it next. With a session
+  cookie, a missing or wrong token is always `403`.
 
 ## Secrets and logging — PARTLY BUILT
 
@@ -113,7 +119,7 @@ There is no refresh token, so the parallel-refresh race and grace windows do not
   database, not a log file.
 - **BUILT** — session logs carry the sid, never the secret (`session.service.ts:146,166,174`).
 - **BUILT** — secrets fail fast at boot: `COOKIE_SECRET` is required (`env.ts:132-138,195`). Redis
-  fails fast: the process exits if it cannot connect (`server.ts:116-121`).
+  fails fast: the process exits if it cannot connect (`server.ts:120-125`).
 - **NOT BUILT** — a secrets vault. Production secrets come from the environment.
 
 ## Transport and headers — BUILT
@@ -125,15 +131,17 @@ There is no refresh token, so the parallel-refresh race and grace windows do not
   only production.
 - Cookies: `SameSite=Lax` always, `Secure` in production only ([data-model.md](data-model.md#tokens-and-cookies--as-built)).
 - CORS: explicit allowlist from `ALLOWED_ORIGINS`, `credentials: true`, no origin reflection
-  (`server.ts:53-69`). Production refuses to boot with an empty list (`server.ts:110-113`). Outside
+  (`server.ts:53-69`). Production refuses to boot with an empty list (`server.ts:114-117`). Outside
   production any `http(s)://localhost:<port>` origin is also allowed, and a request with no `Origin`
   header is always allowed.
 
 ## Input and upload — PARTLY BUILT
 
-- **PARTLY BUILT** — zod at the edge (`middlewares/validate.ts`). Every auth route with a body or
-  params validates it (`routes/<portal>/auth.ts`). Other modules are not complete: for example
-  `POST /associate/referrals/onboard` runs no `validate()` (`referral/routes/associate/referral.ts:11`).
+- **BUILT** — zod at the edge (`middlewares/validate.ts`). Every auth route with a body or params
+  validates it (`routes/<portal>/auth.ts`), and so do the referral onboarding routes
+  (`referral/routes/associate/referral.ts:12-13`). A grep of `src/modules/*/routes` on 2026-10-19
+  found no route without `validate()` that takes a JSON body, query or params; the ones without it
+  take nothing, or a multipart upload checked as below.
 - **BUILT** — JSON body capped at 100 kb (`server.ts:97`).
 - Uploads (`user/helpers/upload.ts`, `user/helpers/image.ts`):
   - **BUILT** — declared type limited to JPEG, PNG, WEBP (`400 INVALID_FILE_TYPE`), size capped at
@@ -150,10 +158,12 @@ There is no refresh token, so the parallel-refresh race and grace windows do not
   (password and Google), `LOGIN_FAILURE`, `ACCOUNT_LOCKED`, `LOGOUT`, `LOGOUT_ALL`,
   `SESSION_REVOKED`, `PASSWORD_RESET`, `REGISTER` (password and Google), `PROVIDER_LINKED`,
   `PERMISSION_DENIED`, and the admin actions `USER_CREATED`, `USER_UPDATED`, `USER_STATUS_CHANGED`,
-  `USER_IMAGE_CHANGED`, `ROLE_CREATED`, `ROLE_UPDATED`, `ROLE_STATUS_CHANGED`
-  (`AuditLog/types.ts:3-21`; call sites in `auth/services/*.ts`, `auth/controllers/shared/*.ts`,
-  `auth/middlewares/authenticate.ts:62-68`, `user/controllers/admin/managedUser.ts:212-291`,
-  `user/controllers/admin/role.ts:75-95`). **Not recorded:** `switch-role`, `request-role`, email
-  verification, CSRF failures. There is no role-grant or role-revoke endpoint to audit.
+  `USER_IMAGE_CHANGED`, `ROLE_CREATED`, `ROLE_UPDATED`, `ROLE_STATUS_CHANGED`,
+  `ROLE_REQUEST_APPROVED`, `ROLE_REQUEST_REJECTED`
+  (`AuditLog/types.ts:3-23`; call sites in `auth/services/*.ts`, `auth/controllers/shared/*.ts`,
+  `auth/middlewares/authenticate.ts:62-68`, `user/controllers/admin/managedUser.ts:213-292`,
+  `user/controllers/admin/role.ts:77,87,104`, `user/controllers/admin/roleRequest.ts:73,92`).
+  **Not recorded:** `switch-role`, `request-role`, email verification, CSRF failures. There is no
+  role-revoke endpoint to audit.
 - **NOT BUILT** — CI. There is no CI configuration in the repo, so no `npm audit --omit=dev` or
   lockfile-diff check runs automatically.

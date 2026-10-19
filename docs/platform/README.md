@@ -17,7 +17,7 @@ lives in [../modules/](../modules/README.md); this section is the runtime.
 
 ## The life of a request
 
-The order below is the order of `app.use` calls in `src/server.ts:32-104`.
+The order below is the order of `app.use` calls in `src/server.ts:32-108`.
 
 ```mermaid
 flowchart TD
@@ -34,12 +34,15 @@ flowchart TD
   COOK --> LOG["httpLogger"]
   LOG --> API["/api/v1 router"]
   API --> AUTHR["auth routers<br/>per route: limiter → validate,<br/>or authenticate → authorizeRoles → verifyCsrf"]
-  API --> CSRF["verifyCsrf<br/>router-wide, below auth"]
-  CSRF --> MODR["user · referral · dashboard routers<br/>per route: authenticate → authorizeRoles → validate (where present)"]
+  API --> CSRF["verifyCsrf<br/>router-wide, below auth<br/>skipped when no session cookie"]
+  CSRF --> MODR["user · referral · dashboard routers<br/>per route: authenticate → authorizeRoles → validate (where the route takes input)"]
+  CSRF -->|"no route matched"| NF["404 ROUTE_NOT_FOUND"]
+  LOG -->|"path outside /api/v1"| NF
   AUTHR --> CTRL["controller → service → model"]
   MODR --> CTRL
   CTRL --> OUT["response"]
   CTRL -.->|"error"| ERR["errorMiddleware"]
+  NF -.-> ERR
   RL -.->|"429"| ERR
   CORS -.->|"403 CORS_ORIGIN_DENIED"| ERR
   ERR --> OUT
@@ -50,9 +53,16 @@ flowchart TD
 
 Sources: `requestId` → `compression` at `server.ts:32-71`; `/health` at `server.ts:75-82`;
 `/uploads` at `server.ts:87-91`; `globalRateLimit` at `server.ts:95`; body parsers, cookies and the
-HTTP logger at `server.ts:97-100`; the API mount at `server.ts:102`; `errorMiddleware` at
-`server.ts:104`. Inside the API router, auth is registered first and the router-wide `verifyCsrf`
-comes after it (`src/routes/index.ts:11-19`). A typical auth route is
+HTTP logger at `server.ts:97-100`; the API mount at `server.ts:102`; the not-found handler at
+`server.ts:104-106`; `errorMiddleware` at `server.ts:108`. Inside the API router, auth is
+registered first and the router-wide `verifyCsrf` comes after it (`src/routes/index.ts:11-19`).
+
+**An unknown path gets a JSON 404.** Any request no router answered — under `/api/v1` or not —
+reaches `next(ApiError.notFound('Route not found', 'ROUTE_NOT_FOUND'))` (`server.ts:104-106`), so
+the client gets the same error envelope as every other failure (`errorMiddleware.ts:40-43`)
+instead of Express's HTML page. `verifyCsrf` lets a write with no session cookie through
+(`src/modules/auth/middlewares/csrf.ts:90-91`), so a cookieless `POST` to a mistyped path is a 404,
+not a 403 ([flows.md — Where CSRF fits](../modules/auth/flows.md#where-csrf-fits)). A typical auth route is
 `src/modules/auth/routes/customer/auth.ts:14-27`; a typical module route is
 `src/modules/user/routes/admin/managedUser.ts:14,23-29`.
 
@@ -85,11 +95,11 @@ In order:
    throws and stops the process ([configuration.md](configuration.md#fail-fast)). Importing the Redis
    client builds its URL, and a `REDIS_URL` db index that disagrees with `REDIS_DB` throws too
    (`src/utils/redisClient.ts:16-21`, `30-33`).
-2. **`ALLOWED_ORIGINS`** must be non-empty in production, or the process exits (`server.ts:110-113`).
-3. **Redis connects**, or the process exits (`server.ts:117-121`).
-4. **MongoDB connects**; a failure is logged and the process exits (`server.ts:123`, `140-143`).
+2. **`ALLOWED_ORIGINS`** must be non-empty in production, or the process exits (`server.ts:114-117`).
+3. **Redis connects**, or the process exits (`server.ts:121-125`).
+4. **MongoDB connects**; a failure is logged and the process exits (`server.ts:127`, `144-147`).
 5. **Listen.** A listen error such as `EADDRINUSE` is logged and the process exits
-   (`server.ts:125-130`).
+   (`server.ts:129-134`).
 
 Redis is not optional. Sessions, lockout counters, rate limits, OTP codes and password-reset
 sessions all live there, so a server that boots without it looks healthy and rejects every login.
@@ -97,7 +107,7 @@ That is worse than not starting — see [redis.md](redis.md#failure-modes).
 
 **Shutdown.** On `SIGINT` or `SIGTERM` the server stops accepting connections and waits for the
 HTTP server to close, then disconnects MongoDB, then closes Redis, then exits 0. If any step throws,
-it logs and exits 1 (`server.ts:146-163`). There is no forced timeout.
+it logs and exits 1 (`server.ts:150-167`). There is no forced timeout.
 
 ---
 
@@ -108,5 +118,5 @@ per layer) and §12 (cross-module imports). They are not repeated here.
 
 **Today versus the rule:** the target chain is controller → service → `models/<X>/repo.ts`. Only
 `modules/auth/models/Session/repo.ts` exists (it is Redis, not a database). Many legacy controllers
-call Mongoose models directly — for example `src/modules/user/controllers/admin/role.ts:44` and the
+call Mongoose models directly — for example `src/modules/user/controllers/admin/role.ts:46` and the
 `referral` and `dashboard` controllers. See [database.md](database.md).

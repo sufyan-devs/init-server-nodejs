@@ -23,8 +23,8 @@ Express 5 also forwards rejected promises.
 **Core vs product:** the reusable core is `src/config`, `constants`, `middlewares`, `routes`,
 `utils`, `scripts`, `types`, `server.ts`, and modules `auth`, `user`, `audit`, `notification`.
 Modules `referral` and `dashboard` are an inherited client's product. The core imports
-them only in `src/routes/index.ts`; auth reaches referral only through the signup hook
-(`modules/auth/signupHooks.ts`). Removal steps: [README.md](README.md#starting-a-new-client-project).
+them only in `src/routes/index.ts`; auth reaches referral only through the signup and
+role-approved hooks (`modules/auth/signupHooks.ts`). Removal steps: [README.md](README.md#starting-a-new-client-project).
 
 **Deliberately NOT built** (see docs/decisions.md, settled 2026-08-24): access JWTs, refresh tokens,
 rotation, reuse detection, and the epoch counter. A JWT that still needs a Redis lookup adds crypto
@@ -32,8 +32,9 @@ per request and buys nothing; opaque sessions revoke instantly. Add JWTs only wh
 cross-service or edge identity.
 
 **Still legacy:** Mongoose for identity; several controllers query Mongoose models directly;
-`ROLE_CODE` as an enum; `authorizeRoles` checking `availableRoles`, which is a snapshot taken at
-login — a role change in the database does not reach a live session. `bcryptjs` is retained ONLY to
+`ROLE_CODE` as an enum; `authorizeRoles` checking `availableRoles` (any held role passes, whatever
+`activeRole` is). That copy is rewritten in live sessions when an admin approves a role
+request or toggles a role, and when `request-role` is auto-approved; a hand edit in the database is not. `bcryptjs` is retained ONLY to
 verify pre-migration `$2` hashes; new passwords are argon2id and users upgrade on their next login.
 
 **Target design — not built:** Postgres + Prisma v7, permissions as database rows with

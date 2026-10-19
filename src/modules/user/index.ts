@@ -3,6 +3,7 @@ import adminCustomerRoutes from './routes/admin/customer';
 import adminVendorRoutes from './routes/admin/vendor';
 import adminAssociateRoutes from './routes/admin/associate';
 import adminRoleRoutes from './routes/admin/role';
+import adminRoleRequestRoutes from './routes/admin/roleRequest';
 import customerProfileRoutes from './routes/customer/profile';
 import vendorProfileRoutes from './routes/vendor/profile';
 import associateProfileRoutes from './routes/associate/profile';
@@ -13,6 +14,7 @@ const register = (router: Router): void => {
   router.use(`/${PORTAL.ADMIN}/vendors`, adminVendorRoutes);
   router.use(`/${PORTAL.ADMIN}/associates`, adminAssociateRoutes);
   router.use(`/${PORTAL.ADMIN}/roles`, adminRoleRoutes);
+  router.use(`/${PORTAL.ADMIN}/role-requests`, adminRoleRequestRoutes);
   router.use(`/${PORTAL.CUSTOMER}/profile`, customerProfileRoutes);
   router.use(`/${PORTAL.VENDOR}/profile`, vendorProfileRoutes);
   router.use(`/${PORTAL.ASSOCIATE}/profile`, associateProfileRoutes);

@@ -263,6 +263,25 @@ const syncUser = async (userId: string, user: SessionUser): Promise<void> => {
   );
 };
 
+// authorizeRoles reads availableRoles from the session, so a role granted or removed
+// in the database must be written into every live session too. A session acting as
+// a role the user no longer holds cannot be repaired, so it is revoked.
+const syncRoles = async (userId: string, availableRoles: string[]): Promise<void> => {
+  const sids = await sessionRepo.listSidsByUser(userId);
+  if (sids.length === 0) return;
+
+  const records = await sessionRepo.findManyBySids(sids);
+  await Promise.all(
+    records
+      .filter((record): record is SessionRecord => record !== null)
+      .map((record) =>
+        availableRoles.includes(record.activeRole)
+          ? sessionRepo.saveFields({ ...record, availableRoles })
+          : revokeSession(record.sid, userId, SESSION_REVOKE_REASON.ROLE_REMOVED),
+      ),
+  );
+};
+
 const createResetSession = async (email: string): Promise<string> => {
   const resetId = (await randomBytesAsync(RESET_ID_BYTES)).toString('base64url');
   await setKey(resetSessionKey(resetId), email, RESET_TTL_SECONDS);
@@ -285,6 +304,7 @@ const sessionService = {
   listUserSessions,
   switchActiveRole,
   syncUser,
+  syncRoles,
 };
 
 export default sessionService;

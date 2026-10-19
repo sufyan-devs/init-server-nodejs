@@ -1,6 +1,8 @@
 import type { Request } from 'express';
 import type { SortOrder } from 'mongoose';
 import Role from '@user/models/Role';
+import UserRole, { USER_ROLE_STATUS } from '@user/models/UserRole';
+import { syncSessionRoles } from '@auth/index';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME, type AuditAction } from '@audit/index';
 import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
@@ -92,6 +94,13 @@ export const toggleStatus = catchAsync(async (req, res) => {
 
   role.isActive = !role.isActive;
   await role.save();
+
+  const holders = await UserRole.distinct('userId', {
+    roleCode: role.code,
+    status: USER_ROLE_STATUS.APPROVED,
+    isActive: true,
+  });
+  await Promise.all(holders.map((userId) => syncSessionRoles(String(userId))));
   recordRoleAction(req, AUDIT_ACTION.ROLE_STATUS_CHANGED, String(role._id), { isActive: role.isActive });
 
   return response.success(

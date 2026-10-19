@@ -16,8 +16,8 @@ login, lockout, rate limiting and a module structure already done — without re
 > absolute 30-day cap, and a session works only on the portal it was created for. Authenticating a
 > request costs **one Redis round trip and no database call**. Plus our own Redis rate limiter,
 > per-account lockout in Redis, Google ID-token login, CSRF double-submit, enumeration-proof auth
-> responses, a password policy with a breached-password check, a MongoDB audit log, and fail-fast
-> env + Redis at boot.
+> responses, a password policy with a breached-password check, a MongoDB audit log, admin approval
+> of role requests with role changes written into live sessions, and fail-fast env + Redis at boot.
 >
 > **Deliberately not built:** access JWTs, refresh tokens and rotation. A JWT that still needs a
 > server-side lookup adds crypto per request and buys nothing — see [docs/decisions.md](docs/decisions.md).
@@ -96,7 +96,7 @@ The server starts on `http://localhost:8000` (override with `PORT`, `src/config/
 
 > `npm run dev` needs **both** MongoDB and Redis running. Redis is not optional: sessions, lockout,
 > rate limits and OTP all live there, so the server exits rather than boot without it
-> (`src/server.ts:117-121`).
+> (`src/server.ts:121-125`).
 
 Outside production, `npm run seed:users` creates `admin@test.com`, `vendor@test.com`, `ba@test.com`
 and `customer@test.com` (`src/modules/user/seed/users.ts:19-29`). They share one password: the value
@@ -151,7 +151,7 @@ own description (its Overview tab in Postman). In short:
 1. **Rename** — `name` and `description` in `package.json`.
 2. **Configure** — in `.env`: `COOKIE_SECRET` (always required, `src/config/env.ts:195`),
    `MONGO_URI` (required in production, `env.ts:180`), `ALLOWED_ORIGINS` (required in production,
-   `src/server.ts:110-113`), `REDIS_URL`, and `APP_NAME` / `APP_LOGO_URL` for email branding.
+   `src/server.ts:114-117`), `REDIS_URL`, and `APP_NAME` / `APP_LOGO_URL` for email branding.
    `.env.example` lists every variable with its default. A number that is not a valid integer stops
    the server at boot and names itself (`env.ts:145-154`).
 3. **Define the client's roles** — edit `src/modules/user/seed/roles.ts`, then run
@@ -169,10 +169,11 @@ own description (its Overview tab in Postman). In short:
      18-19);
    - delete the `@referral/*` and `@dashboard/*` aliases in `tsconfig.json:33-34`.
 
-   Auth reaches referral only through a signup hook (`src/modules/auth/signupHooks.ts`, set at
-   `src/modules/referral/index.ts:10`). With referral gone no hook is set, and the optional
-   `referralCode` field on register (`src/modules/auth/validators/index.ts:22,36`) is ignored
-   (`signupHooks.ts:23`).
+   Auth reaches referral only through two hooks, a signup hook and a role-approved hook
+   (`src/modules/auth/signupHooks.ts`, set at `src/modules/referral/index.ts:10-11`). With referral
+   gone no hook is set: the optional `referralCode` field on register
+   (`src/modules/auth/validators/index.ts:22,36`) is ignored, and approving a role runs nothing
+   extra (`signupHooks.ts:36,38-40`).
 
 **The test that keeps this true:** if adding a role requires opening a controller, the design has
 drifted. Fix the starter, not the client project.

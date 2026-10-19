@@ -101,6 +101,10 @@ app.use(httpLoggerMiddleware);
 
 app.use('/api/v1', indexRoutes);
 
+app.use((_req: Request, _res: Response, next: express.NextFunction) => {
+  next(ApiError.notFound('Route not found', 'ROUTE_NOT_FOUND'));
+});
+
 app.use(errorMiddleware);
 
 let httpServer: Server | undefined;

@@ -10,7 +10,9 @@ import { generateOtp, storeOtp, OTP_PURPOSE } from '@auth/helpers/otp';
 import { sendEmail, templates } from '@notification/index';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 import { escapeHtml, formatFullName, normalizeEmail } from '@utils/format';
-import { runSignupHook } from '@auth/signupHooks';
+import { runSignupHook, runRoleApprovedHook } from '@auth/signupHooks';
+import { toObjectId } from '@utils/mongoHelper';
+import { portalOf } from '@utils/cookieHelper';
 
 interface RegisterData {
   email: string;
@@ -121,7 +123,10 @@ const register = async (data: RegisterData, options: RegisterOptions = {}) => {
     approvedBy: role.autoApproveOnSignup ? user._id : undefined,
   });
 
-  await afterSignup?.({ userId: user._id, autoApproved: role.autoApproveOnSignup });
+  await afterSignup?.({ userId: user._id });
+  if (userRole.status === USER_ROLE_STATUS.APPROVED) {
+    await runRoleApprovedHook({ userId: user._id, roleCode });
+  }
 
   void record({
     actorId: String(user._id),
@@ -153,6 +158,13 @@ const register = async (data: RegisterData, options: RegisterOptions = {}) => {
   };
 };
 
+// A portal admits any role that maps to it (SUPER_ADMIN and ADMIN share the admin
+// portal); the role the portal was asked for wins when the user holds it.
+const pickPortalRole = (userRoles: string[], roleCode: string): string | undefined =>
+  userRoles.includes(roleCode)
+    ? roleCode
+    : userRoles.find((code) => portalOf(code) === portalOf(roleCode));
+
 const login = async (data: LoginData, options: LoginOptions = {}) => {
   const { email, password, roleCode } = data;
   const { ipAddress, userAgent, deviceInfo } = options;
@@ -170,16 +182,17 @@ const login = async (data: LoginData, options: LoginOptions = {}) => {
   if (userRoles.length === 0)
     throw ApiError.fromAuthError(AUTH_ERRORS.ACCOUNT_NOT_APPROVED);
 
-  if (!userRoles.includes(roleCode)) {
+  const activeRole = pickPortalRole(userRoles, roleCode);
+  if (!activeRole) {
     throw ApiError.fromAuthError(AUTH_ERRORS.PORTAL_ACCESS_DENIED);
   }
 
   const session = await sessionService.createSession({
     userId: String(user._id),
     user: toSessionUser(user),
-    activeRole: roleCode,
+    activeRole,
     availableRoles: userRoles,
-    portal: roleCode,
+    portal: activeRole,
     ipAddress,
     userAgent,
     deviceInfo,
@@ -189,13 +202,13 @@ const login = async (data: LoginData, options: LoginOptions = {}) => {
     actorId: String(user._id),
     action: AUDIT_ACTION.LOGIN_SUCCESS,
     outcome: AUDIT_OUTCOME.SUCCESS,
-    meta: { activeRole: roleCode, portal: roleCode },
+    meta: { activeRole, portal: activeRole },
     ip: ipAddress,
     userAgent,
   });
 
   return {
-    user: { ...user.toAuthJSON(), activeRole: roleCode },
+    user: { ...user.toAuthJSON(), activeRole },
     token: session.token,
     sid: session.sid,
   };
@@ -224,7 +237,7 @@ const getAvailableRoles = async (userId: any) => {
   }));
 };
 
-const requestRole = async (userId: any, roleCode: string, referralCode: string | null = null) => {
+const requestRole = async (userId: string, roleCode: string, referralCode: string | null = null) => {
   const role = await Role.findByCode(roleCode);
   if (!role) throw ApiError.fromAuthError(AUTH_ERRORS.INVALID_ROLE_REQUEST);
   if (!role.canSelfRegister)
@@ -236,11 +249,17 @@ const requestRole = async (userId: any, roleCode: string, referralCode: string |
 
   const afterSignup = await runSignupHook({ roleCode, referralCode });
 
-  const userRole = await UserRole.assignRole(userId, roleCode, {
-    requestedBy: userId,
+  const userObjectId = toObjectId(userId);
+  const userRole = await UserRole.assignRole(userObjectId, roleCode, {
+    requestedBy: userObjectId,
   });
 
-  await afterSignup?.({ userId, autoApproved: userRole.status === USER_ROLE_STATUS.APPROVED });
+  await afterSignup?.({ userId: userObjectId });
+  if (userRole.status === USER_ROLE_STATUS.APPROVED) {
+    await runRoleApprovedHook({ userId: userObjectId, roleCode });
+    // A self-service grant must reach the caller's open sessions, like an admin approval does.
+    await sessionService.syncRoles(userId, await UserRole.getUserRoleCodes(userObjectId));
+  }
 
   return { role: { code: roleCode, status: userRole.status } };
 };
@@ -248,6 +267,7 @@ const requestRole = async (userId: any, roleCode: string, referralCode: string |
 export {
   register,
   login,
+  pickPortalRole,
   logoutAllSessions,
   switchRole,
   getAvailableRoles,

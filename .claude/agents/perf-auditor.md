@@ -27,7 +27,7 @@ everything: work that grows with the size of the data must not happen in the req
 | §3 | pagination/filtering applied after the join (`$lookup`) instead of before |
 | §4 | queries with no supporting index; check ESR order (equality, sort, range) against the `schema.index(...)` calls in the model's `schema.ts` |
 | §5 | no `.select()` / `.lean()` on read-only list queries — fetching whole documents |
-| §6 | deep `skip` where a cursor belongs; **uncapped page size** (validators should cap it, e.g. `src/modules/user/validators/index.ts:22-23`) |
+| §6 | deep `skip` where a cursor belongs; **uncapped page size** (validators should cap it, e.g. `src/modules/user/validators/index.ts:23-24`) |
 | §7 | sync crypto/compression/JSON work blocking the event loop; unbounded `Promise.all` |
 | §8 | hot reads that should be cached in Redis, and Redis keys with no TTL or not built in `src/utils/redisKeys.ts` |
 | §9 | per-request client/pool creation; oversized response payloads |

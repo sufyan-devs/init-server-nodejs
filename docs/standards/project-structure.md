@@ -38,7 +38,7 @@ HTTP request
    │
    ▼
 server.ts                  ← helmet, CORS, compression, /health, global rate limit,
-   │                         body parsers, cookies, HTTP log; mounts /api/v1 (server.ts:32-104)
+   │                         body parsers, cookies, HTTP log; mounts /api/v1, JSON 404 (server.ts:32-108)
    ▼
 routes/index.ts            ← auth registers first, then verifyCsrf, then every other module
    │                         (routes/index.ts:11-19)
@@ -88,7 +88,7 @@ modules `referral` and `dashboard` are a client example.
 Core has no dependency on product except the two registrations in `src/routes/index.ts:5-6` and
 `:18-19`. Removing the product means deleting the two module folders, those lines, and the
 `@referral/*`, `@dashboard/*` aliases (`tsconfig.json:33-34`). Auth reaches referral
-only through the signup hook (§12).
+only through the signup and role-approved hooks (§12).
 
 ---
 
@@ -122,10 +122,11 @@ Which modules have which layers today:
 | `user` | ✅ | ✅ | ✅ | — | `User/`, `Role/`, `UserRole/` | `helpers/`, `seed/` |
 | `audit` | — | — | — | ✅ | `AuditLog/` | front door exports `record` only |
 | `notification` | — | — | — | — | — | `email/` |
-| `referral` | ✅ | — (inline) | ✅ | — | 2 models | `helpers/`, `signupHook.ts` |
+| `referral` | ✅ | ✅ | ✅ | — | 2 models | `helpers/`, `signupHook.ts` |
 | `dashboard` | ✅ | — | ✅ | — | — | |
 
-Product modules validating inside controllers is legacy. New code validates at the edge with zod.
+Every route that takes a body, query or params validates it at the edge with zod (a grep of
+`src/modules/*/routes` on 2026-10-19). `dashboard` takes no input, so it has no validators.
 
 ### The layers explained simply (one job each)
 
@@ -151,14 +152,14 @@ the labeled shelf** where ingredients live.
 
 Routes and controllers are grouped into folders by **audience**. The four portal names come from one
 map, `PORTAL` in `utils/cookieHelper.ts:6-11`; auth and user mount their routers from it
-(`auth/index.ts:31-36`, `user/index.ts:12-18`).
+(`auth/index.ts:37-40`, `user/index.ts:13-20`).
 
 | Folder | Who | Example |
 |--------|-----|---------|
-| `admin/` | Internal admins | manage customers, vendors, associates and roles (`user/index.ts:12-15`) |
-| `vendor/` | Business vendors | their own profile and referral code (`user/index.ts:17`, `referral/index.ts:15`) |
-| `associate/` | Business associates / referrers | onboard referrals, see referral stats (`referral/index.ts:13`, `dashboard/index.ts:5`) |
-| `customer/` | End customers | their own profile (`user/index.ts:16`) |
+| `admin/` | Internal admins | manage customers, vendors, associates, roles and role requests (`user/index.ts:13-17`) |
+| `vendor/` | Business vendors | their own profile and referral code (`user/index.ts:19`, `referral/index.ts:16`) |
+| `associate/` | Business associates / referrers | onboard referrals, see referral stats (`referral/index.ts:14`, `dashboard/index.ts:5`) |
+| `customer/` | End customers | their own profile (`user/index.ts:18`) |
 | `public/` | Anyone, no login | none today |
 
 A module only includes the audiences it needs. Logic used by several audiences in one module goes in
@@ -224,7 +225,7 @@ import Referral, { REFERRAL_STATUS } from '@referral/models/Referral';
 | `models/<Model>/index.ts` | Re-exports the model (or repo) + its types. |
 | `controllers/<audience>/index.ts` | The default controller file for that audience. |
 
-A module's `index.ts` is wiring plus its public surface. From `auth/index.ts:31-49`:
+A module's `index.ts` is wiring plus its public surface. From `auth/index.ts:36-57`:
 
 ```ts
 const register = (router: Router): void => {
@@ -243,7 +244,7 @@ export { register, registerUser, hashPassword, authenticate, authorizeRoles, ver
 
 ```ts
 authModule.register(router);
-router.use(verifyCsrf);   // everything below already has a session
+router.use(verifyCsrf);   // everything below needs a session; no session cookie → passes, authenticate rejects
 userModule.register(router);
 referralModule.register(router);
 // ...one line per module
@@ -451,13 +452,16 @@ Generated from the files present under `src/` in the working tree on 2026-10-19 
 │   │   │   │   │   └── referralCode.ts
 │   │   │   │   └── vendor/
 │   │   │   │       └── referralCode.ts
+│   │   │   ├── validators/
+│   │   │   │   └── index.ts
 │   │   │   ├── index.ts
 │   │   │   └── signupHook.ts
 │   │   └── user/
 │   │       ├── controllers/
 │   │       │   ├── admin/
 │   │       │   │   ├── managedUser.ts
-│   │       │   │   └── role.ts
+│   │       │   │   ├── role.ts
+│   │       │   │   └── roleRequest.ts
 │   │       │   ├── customer/
 │   │       │   │   └── profile.ts
 │   │       │   └── shared/
@@ -485,6 +489,7 @@ Generated from the files present under `src/` in the working tree on 2026-10-19 
 │   │       │   │   ├── customer.ts
 │   │       │   │   ├── managedUser.ts
 │   │       │   │   ├── role.ts
+│   │       │   │   ├── roleRequest.ts
 │   │       │   │   └── vendor.ts
 │   │       │   ├── associate/
 │   │       │   │   └── profile.ts
@@ -557,21 +562,27 @@ notification ──→ (none — leaf)
 ```
 
 Representative edges: `auth/services/auth.service.ts:2` (User model),
-`auth/controllers/shared/oauth.ts:6` (`@audit/index`),
+`auth/controllers/shared/oauth.ts:7` (`@audit/index`),
 `auth/controllers/shared/emailVerification.ts:3` (`@notification/index`),
 `referral/controllers/associate/onboard.ts:4` (User model),
 `dashboard/controllers/associate/index.ts:1` (Referral model).
 
 - `audit` and `notification` are **leaves** — they import only core code. That is healthy: stable,
   low-level modules at the bottom.
-- **`auth` does not import `referral`.** Signup runs a hook (`auth/services/auth.service.ts:69,237`)
-  that `referral` registers at load time: `setSignupHook(referralSignupHook)`
-  (`referral/index.ts:10`), implemented in `referral/signupHook.ts`. Delete `referral/` and signup
-  still works — the hook is simply unset (`auth/signupHooks.ts:23`).
+- **`auth` does not import `referral`.** Auth runs two hooks that `referral` registers at load
+  time: `setSignupHook(referralSignupHook)` and `setRoleApprovedHook(referralRoleApprovedHook)`
+  (`referral/index.ts:10-11`), implemented in `referral/signupHook.ts`. The signup hook runs around
+  user creation (`auth/services/auth.service.ts:71,126,250,257`); the role-approved hook runs on
+  every path that leaves a role `APPROVED`, including two in `user`
+  (`auth/services/auth.service.ts:128,259`, `user/controllers/admin/roleRequest.ts:71`,
+  `user/controllers/admin/managedUser.ts:205`). Delete `referral/` and both paths still work — an
+  unset hook does nothing (`auth/signupHooks.ts:36,38-40`).
 - ⚠️ **`auth ↔ user` is circular.** `auth` reads the user models; `user` calls back into `auth` for
   what it cannot own — checking and hashing a password, revoking a suspended account's sessions,
-  refreshing the display fields a session caches, and the route middleware
+  refreshing the display fields and roles a session caches, running the role-approved hook, and the
+  route middleware
   (`user/controllers/admin/managedUser.ts:3`, `user/controllers/shared/profile.ts:2`,
+  `user/controllers/admin/role.ts:5`, `user/controllers/admin/roleRequest.ts:3`,
   `user/seed/users.ts:2`, `user/routes/admin/role.ts:3`). Session lifecycle is genuinely `auth`'s
   job, so the edge is real. **What keeps it safe:** `user` imports only `@auth/index`, so the surface
   is a handful of named functions, not the module.
@@ -640,7 +651,8 @@ events.on('order.placed', ({ customerId }) => sendEmail(customerId, templates.or
 ```
 
 Listeners would live in `modules/<domain>/listeners/` — created only when the first one exists.
-Until then, the signup hook (Rule 2, option 3) covers the one case the code has.
+Until then, the two hooks (Rule 2, option 3) cover the two cases the code has: a user signing up,
+and a role becoming `APPROVED`.
 
 ### Rule 4 — A feature that spans modules → an *orchestrator service*
 
@@ -685,7 +697,7 @@ return response.created(res, data);            // 201
 
 // failure → throw; errorMiddleware formats it (utils/apiError.ts:18-40)
 throw ApiError.conflict('A user with this email already exists', 'EMAIL_EXISTS');   // user/controllers/admin/managedUser.ts:186
-throw ApiError.notFound('Role not found', 'ROLE_NOT_FOUND');                         // user/controllers/admin/role.ts:13
+throw ApiError.notFound('Role not found', 'ROLE_NOT_FOUND');                         // user/controllers/admin/role.ts:15
 throw ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED);   // one argument: the entry carries status
 ```
 
@@ -708,7 +720,7 @@ and keeps controllers uniform.
 const create = catchAsync(async (req, res) => { ... });
 ```
 
-`errorMiddleware` (registered last, `server.ts:104`) formats everything. **Rule:** throw `ApiError`
+`errorMiddleware` (registered last, `server.ts:108`) formats everything. **Rule:** throw `ApiError`
 for expected failures; never `res.status(500)` by hand.
 
 ### C. Auth & roles — middleware on the route, not in the controller
@@ -845,7 +857,7 @@ Create each folder only when it has content (CLAUDE.md hard rule 10).
 
 The rules are in [performance-practices.md](performance-practices.md). In short:
 
-- **Always paginate** list endpoints, and cap the page size (`user/validators/index.ts:22-23`).
+- **Always paginate** list endpoints, and cap the page size (`user/validators/index.ts:23-24`).
 - **Compound indexes** matching your query shapes (`audit/models/AuditLog/schema.ts:33-34`).
 - **`.lean()`** and `.select()` on read-only queries.
 - **Cache hot reads in Redis** with a TTL.
@@ -926,8 +938,8 @@ export const activate = async (id: string) => {
 
 ## 17. AI-Assisted Migration Estimates
 
-> Planning ballparks, not decisions or quotes. Snapshot on 2026-10-19: **~6,600 LOC**, **107 `.ts`
-> files**, **6 modules**, **~1,200 LOC in controllers**. Estimates assume an AI coding agent doing
+> Planning ballparks, not decisions or quotes. Snapshot on 2026-10-19: **~6,900 LOC**, **110 `.ts`
+> files**, **6 modules**, **~1,300 LOC in controllers** (`wc -l` over `src/`, blank lines included). Estimates assume an AI coding agent doing
 > the bulk work with a developer reviewing every step — roughly **3–5× faster** than fully manual.
 
 ### Option A — Express → NestJS (same monolith, different framework)

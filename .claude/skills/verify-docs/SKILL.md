@@ -31,6 +31,7 @@ Map changed source files to the pages that describe them. The mapping today:
 | module layout, new/deleted files, aliases (`tsconfig.json`), cross-module imports, `src/routes/index.ts` | `docs/standards/project-structure.md` (§7 aliases, §11 tree, §12 dependency map) |
 | `src/utils/**`, `eslint.config.js`, `tsconfig.json` compiler options | `docs/standards/coding-practices.md` |
 | the auth hot path (`authenticate.ts`, `session.service.ts`, `Session/repo.ts`) | `docs/standards/performance-practices.md` §11 |
+| `index.ts`, `routes/**` and hooks of the undocumented modules (`user`, `referral`, `dashboard`, `audit`, `notification`) | `docs/modules/README.md` (mounts, exports, notes) |
 | anything under `src/` | `CLAUDE.md` (stack, status, commands, hard rules) |
 
 ## 2. Verify every factual claim

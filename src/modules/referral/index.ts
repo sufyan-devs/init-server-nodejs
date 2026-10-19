@@ -1,13 +1,14 @@
 import type { Router } from 'express';
-import { setSignupHook } from '@auth/index';
+import { setSignupHook, setRoleApprovedHook } from '@auth/index';
 import './models/Referral';
 import './models/ReferralCode';
-import { referralSignupHook } from './signupHook';
+import { referralSignupHook, referralRoleApprovedHook } from './signupHook';
 import associateReferralRoutes from './routes/associate/referral';
 import associateReferralCodeRoutes from './routes/associate/referralCode';
 import vendorReferralCodeRoutes from './routes/vendor/referralCode';
 
 setSignupHook(referralSignupHook);
+setRoleApprovedHook(referralRoleApprovedHook);
 
 const register = (router: Router): void => {
   router.use('/associate/referrals', associateReferralRoutes);

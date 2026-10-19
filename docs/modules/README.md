@@ -21,8 +21,9 @@ load-order cycles. The rule lives in
 
 **Core does not depend on product code.** The only references are in `src/routes/index.ts`: two
 imports (`:5-6`) and two `register(router)` calls (`:18-19`). Auth reaches referral only through
-a signup hook that the referral module sets on itself (`referral/index.ts:10`,
-`auth/signupHooks.ts:19-23`).
+two hooks that the referral module sets on itself — a signup hook and a role-approved hook
+(`referral/index.ts:10-11`, `auth/signupHooks.ts:28-40`). How they behave:
+[auth/README.md — Hooks](auth/README.md#where-the-code-lives).
 
 **To drop the product modules:**
 
@@ -32,7 +33,8 @@ a signup hook that the referral module sets on itself (`referral/index.ts:10`,
 4. Run `npm run type-check` and `npm run lint:fix`.
 
 What changes: the referral-code routes disappear, and a `referralCode` sent to `/register` or
-`/request-role` is accepted and ignored, because no hook is set (`auth/signupHooks.ts:23`). The
+`/request-role` is accepted and ignored, and approving a role runs nothing extra, because no hook
+is set (`auth/signupHooks.ts:36,38-40`). The
 `BUSINESS_ASSOCIATE` role seed description still says "Referral partner" (`user/seed/roles.ts:43`).
 
 ---
@@ -56,11 +58,11 @@ Mounts and exports are read out of each module's `index.ts`. Every mount is unde
 
 | Module | Kind | Mounts | Exports | Note |
 |---|---|---|---|---|
-| `auth` | core | `/{admin,vendor,associate,customer}/auth` (`auth/index.ts:31-36`) | `register`, `registerUser`, `hashPassword`, `assertPasswordAllowed`, `revokeUserSessions`, `syncSessionUser`, `authenticate`, `authorizeRoles`, `verifyCsrf`, `setSignupHook`, type `SignupHook` (`auth/index.ts:38-50`) | Documented — see above |
-| `user` | core | `/admin/{customers,vendors,associates,roles}`, `/{customer,vendor,associate}/profile` (`user/index.ts:11-19`) | `register` (`user/index.ts:21`) | The largest undocumented module. Other modules use its models directly. It calls back into `auth` for session revocation and sync, password hashing and policy (`user/controllers/admin/managedUser.ts:3`, `user/controllers/shared/profile.ts:2`) |
+| `auth` | core | `/{admin,vendor,associate,customer}/auth` (`auth/index.ts:36-41`) | `register`, `registerUser`, `hashPassword`, `assertPasswordAllowed`, `revokeUserSessions`, `syncSessionUser`, `syncSessionRoles`, `authenticate`, `authorizeRoles`, `verifyCsrf`, `setSignupHook`, `setRoleApprovedHook`, `runRoleApprovedHook`, types `SignupHook`, `RoleApprovedHook` (`auth/index.ts:43-58`) | Documented — see above |
+| `user` | core | `/admin/{customers,vendors,associates,roles,role-requests}`, `/{customer,vendor,associate}/profile` (`user/index.ts:12-21`) | `register` (`user/index.ts:23`) | The largest undocumented module. Other modules use its models directly. It calls back into `auth` for session revocation and sync, role sync, the role-approved hook, password hashing and policy (`user/controllers/admin/managedUser.ts:3`, `user/controllers/shared/profile.ts:2`, `user/controllers/admin/role.ts:5`, `user/controllers/admin/roleRequest.ts:3`). Role requests, admin only (`user/routes/admin/roleRequest.ts:10-14`): `GET /admin/role-requests` lists them, `PENDING` by default, filterable by `status` and `roleCode` (`user/validators/index.ts:88-93`); `PATCH /:id/approve` and `PATCH /:id/reject` (optional `reason`, ≤500 chars, `validators/index.ts:97-99`) act only on a `PENDING` request — otherwise `404 ROLE_REQUEST_NOT_FOUND` or `400 ROLE_REQUEST_NOT_PENDING` (`roleRequest.ts:10-17`). Each decision is audited as `ROLE_REQUEST_APPROVED` / `ROLE_REQUEST_REJECTED` (`audit/models/AuditLog/types.ts:21-22`); approval also runs the role-approved hook and syncs the user's live sessions (`roleRequest.ts:71-72`) |
 | `audit` | core | *(no routes)* | `record`, `AUDIT_ACTION`, `AUDIT_OUTCOME`, types `AuditAction`, `AuditOutcome`, `AuditEntry` (`audit/index.ts:1-3`) | Append-only MongoDB audit log. `record()` catches its own errors, so a logging failure cannot break a request (`audit/services/audit.service.ts:6-17`) |
 | `notification` | core | *(no routes)* | `sendEmail`, `templates`, `layout`, type `EmailResult` (`notification/index.ts:1-2`) | Email templates and the SMTP transport. Branding comes from `APP_NAME` / `APP_LOGO_URL` (`env.ts:172-173`) |
-| `referral` | product | `GET` and `POST /associate/referrals/onboard` (`referral/routes/associate/referral.ts:10-11`); `GET /associate/auth/referral-code` and `GET /vendor/auth/referral-code` (`referral/index.ts:12-16`) | `register` | Sets the auth signup hook when imported (`referral/index.ts:10`) |
+| `referral` | product | `GET` and `POST /associate/referrals/onboard`, both validated by zod (`referral/routes/associate/referral.ts:12-13`, schemas in `referral/validators/index.ts:11-27`); `GET /associate/auth/referral-code` and `GET /vendor/auth/referral-code` (`referral/index.ts:13-17`) | `register` | Sets the auth signup and role-approved hooks when imported (`referral/index.ts:10-11`). A referral is recorded `PENDING` at signup and turned `ACTIVE` when the role is approved, by any path; an approved BUSINESS_ASSOCIATE or VENDOR without a referral code gets one then (`referral/signupHook.ts:21-52`) |
 | `dashboard` | product | `/associate/dashboard`, one route: `GET /stats` (`dashboard/index.ts:5`, `dashboard/routes/associate/dashboard.ts:10`) | `register` | Read-only: counts the signed-in associate's referrals as pending, active and total (`dashboard/controllers/associate/index.ts:9-37`) |
 
 Controllers in `referral`, `dashboard` and several core controllers call Mongoose models
