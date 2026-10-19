@@ -13,6 +13,7 @@ import type { AuthError } from '@constants/authErrors';
 import { logger } from '@utils/logger';
 import { AUTH_PROVIDER } from './types';
 import type { IdentityProvider, NormalizedIdentity } from './types';
+import { errorMessage } from '@utils/format';
 
 const GOOGLE_CERTS_URL = 'https://www.googleapis.com/oauth2/v3/certs';
 const GOOGLE_ISSUERS = ['accounts.google.com', 'https://accounts.google.com'];
@@ -110,7 +111,7 @@ const fetchCerts = async (): Promise<CertCache> => {
     });
   } catch (error) {
     logger.error('Failed to fetch Google signing keys', {
-      reason: (error as Error).message,
+      reason: errorMessage(error),
     });
     throw ApiError.fromAuthError(503, GOOGLE_ERRORS.UNAVAILABLE);
   }
@@ -211,7 +212,7 @@ const verify = async (credential: Record<string, unknown>): Promise<NormalizedId
       audience: [...clientIds] as [string, ...string[]],
     }) as GoogleIdTokenPayload;
   } catch (error) {
-    logger.warn('Google ID token rejected', { kid, reason: (error as Error).message });
+    logger.warn('Google ID token rejected', { kid, reason: errorMessage(error) });
     throw ApiError.fromAuthError(401, GOOGLE_ERRORS.INVALID_TOKEN);
   }
 

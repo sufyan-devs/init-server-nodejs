@@ -1,6 +1,7 @@
 import mongoose, { Schema } from 'mongoose';
 import type { IUser, IUserModel } from './types';
 import { USER_STATUS } from './types';
+import { formatFullName } from '@utils/format';
 
 const userSchema = new Schema<IUser>(
   {
@@ -31,7 +32,7 @@ const userSchema = new Schema<IUser>(
       index: true,
     },
     firstName: { type: String, required: true, trim: true },
-    lastName: { type: String, required: true, trim: true },
+    lastName: { type: String, default: '', trim: true },
     phone: {
       type: String,
       trim: true,
@@ -55,7 +56,7 @@ userSchema.index(
 );
 
 userSchema.virtual('fullName').get(function (this: IUser) {
-  return `${this.firstName} ${this.lastName}`;
+  return formatFullName(this.firstName, this.lastName);
 });
 
 userSchema.statics.findByEmail = function (email: string) {

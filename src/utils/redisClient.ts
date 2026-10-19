@@ -2,6 +2,7 @@ import type { RedisClientType } from 'redis';
 import { createClient } from 'redis';
 import { envConfig } from '@config/env';
 import { logger } from '@utils/logger';
+import { errorMessage } from '@utils/format';
 
 // node-redis parses `url` after the plain options, so a `database` option is
 // silently overridden by the URL's db index — which is 0 when the URL omits it.
@@ -104,7 +105,7 @@ async function initRedis(timeoutMs: number = 5000): Promise<void> {
       logger.info("Redis initialized");
     }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     logger.error(`Redis initialization failed at ${redisUrl}`, {
       error: message,
     });

@@ -98,9 +98,7 @@ const registerOnboard = catchAsync(async (req, res) => {
     throw ApiError.conflict('That email already has an account.', 'EMAIL_ALREADY_EXISTS');
   }
 
-  // This is a real credential, emailed to a real person. Math.random is not a
-  // CSPRNG — 12 draws from one stream leak the sequence for anyone onboarded
-  // alongside them. randomInt is unbiased across the alphabet too.
+  // A real emailed credential: randomInt for the same reason as generateOTP.
   const password = Array.from(
     { length: 12 },
     () => TEMP_PASSWORD_CHARS[randomInt(0, TEMP_PASSWORD_CHARS.length)],

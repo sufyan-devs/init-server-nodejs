@@ -5,6 +5,7 @@
 > raw IP or email in any key name and a maximum key depth of 4 segments. The two-counter OTP limiter
 > was confirmed still counting down to 429 after the per-key change.
 > **Not exercised:** an actual Redis Cluster, failover, or Redis down mid-request. No production build has been run.
+> Citations re-checked against the code on 2026-10-19.
 
 Redis holds everything **ephemeral, high-churn and rebuildable**. The database holds everything
 durable. Getting this line wrong in either direction is expensive, so it is worth stating plainly:
@@ -22,17 +23,17 @@ Losing a session is a re-login. Losing a user is a company-ending incident. That
 ## Which database
 
 **This app uses Redis logical database `11`, not `0`** — `REDIS_DB`, defaulting to 11 in
-`config/env.ts:253-255`. A developer machine usually runs several projects against one Redis, and
+`config/env.ts:252-254`. A developer machine usually runs several projects against one Redis, and
 `npm run db:reset` calls `FLUSHDB`: on the default db 0 that wipes whatever else is running.
 
-The index is written into the connection URL (`utils/redisClient.ts:6-17`), not passed as the
+The index is written into the connection URL (`utils/redisClient.ts:7-30`), not passed as the
 `database` option. node-redis parses `url` **after** the plain options, so a `database` option is
 silently overridden by the URL's index — which is 0 when the URL omits one. Setting `REDIS_DB=11`
 alongside `REDIS_URL=redis://host:6379` therefore looks correct, logs correct, and still writes to
 db 0. Building the index into the URL is what makes `REDIS_DB` authoritative.
 
 If `REDIS_URL` carries a db index that disagrees with `REDIS_DB`, the process **refuses to start**
-(`utils/redisClient.ts:9-24`). Silently preferring one would let a service read an empty keyspace,
+(`utils/redisClient.ts:14-21`). Silently preferring one would let a service read an empty keyspace,
 which looks identical to having lost every session.
 
 ---

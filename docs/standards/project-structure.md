@@ -302,10 +302,22 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │   └── authErrors.ts
 │   ├── middlewares/
 │   │   ├── authenticate.ts
+│   │   ├── csrf.ts
 │   │   ├── errorMiddleware.ts
 │   │   ├── httpLogger.ts
-│   │   └── requestId.ts
+│   │   ├── rateLimit.ts
+│   │   ├── requestId.ts
+│   │   └── validate.ts
 │   ├── modules/
+│   │   ├── audit/
+│   │   │   ├── models/
+│   │   │   │   └── AuditLog/
+│   │   │   │       ├── index.ts
+│   │   │   │       ├── schema.ts
+│   │   │   │       └── types.ts
+│   │   │   ├── services/
+│   │   │   │   └── audit.service.ts
+│   │   │   └── index.ts
 │   │   ├── auth/
 │   │   │   ├── controllers/
 │   │   │   │   ├── admin/
@@ -317,14 +329,25 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │   │   │   ├── shared/
 │   │   │   │   │   ├── authHelper.ts
 │   │   │   │   │   ├── emailVerification.ts
-│   │   │   │   │   └── passwordReset.ts
+│   │   │   │   │   ├── oauth.ts
+│   │   │   │   │   ├── passwordReset.ts
+│   │   │   │   │   ├── portalAuth.ts
+│   │   │   │   │   └── sessions.ts
 │   │   │   │   └── vendor/
 │   │   │   │       └── index.ts
+│   │   │   ├── helpers/
+│   │   │   │   └── otp.ts
 │   │   │   ├── models/
-│   │   │   │   └── LoginSession/
+│   │   │   │   └── Session/
 │   │   │   │       ├── index.ts
-│   │   │   │       ├── schema.ts
+│   │   │   │       ├── repo.ts
 │   │   │   │       └── types.ts
+│   │   │   ├── providers/
+│   │   │   │   ├── google.ts
+│   │   │   │   ├── index.ts
+│   │   │   │   ├── password.ts
+│   │   │   │   ├── registry.ts
+│   │   │   │   └── types.ts
 │   │   │   ├── routes/
 │   │   │   │   ├── admin/
 │   │   │   │   │   └── auth.ts
@@ -332,8 +355,17 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │   │   │   │   └── auth.ts
 │   │   │   │   ├── customer/
 │   │   │   │   │   └── auth.ts
+│   │   │   │   ├── shared/
+│   │   │   │   │   └── limits.ts
 │   │   │   │   └── vendor/
 │   │   │   │       └── auth.ts
+│   │   │   ├── services/
+│   │   │   │   ├── identity.service.ts
+│   │   │   │   ├── lockout.service.ts
+│   │   │   │   ├── password.service.ts
+│   │   │   │   └── session.service.ts
+│   │   │   ├── validators/
+│   │   │   │   └── index.ts
 │   │   │   └── index.ts
 │   │   ├── coupon/
 │   │   │   ├── controllers/
@@ -412,22 +444,16 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │   └── user/
 │   │       ├── controllers/
 │   │       │   ├── admin/
-│   │       │   │   ├── associate/
-│   │       │   │   │   └── index.ts
-│   │       │   │   ├── customer/
-│   │       │   │   │   └── index.ts
 │   │       │   │   ├── role/
 │   │       │   │   │   └── index.ts
-│   │       │   │   └── vendor/
-│   │       │   │       └── index.ts
-│   │       │   ├── associate/
-│   │       │   │   └── profile.ts
+│   │       │   │   └── managedUser.ts
 │   │       │   ├── customer/
 │   │       │   │   └── profile.ts
-│   │       │   └── vendor/
+│   │       │   └── shared/
 │   │       │       └── profile.ts
 │   │       ├── helpers/
 │   │       │   ├── image.ts
+│   │       │   ├── profileFields.ts
 │   │       │   └── upload.ts
 │   │       ├── models/
 │   │       │   ├── Role/
@@ -446,6 +472,7 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │       │   ├── admin/
 │   │       │   │   ├── associate.ts
 │   │       │   │   ├── customer.ts
+│   │       │   │   ├── managedUser.ts
 │   │       │   │   ├── role.ts
 │   │       │   │   └── vendor.ts
 │   │       │   ├── associate/
@@ -455,11 +482,15 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │       │   └── vendor/
 │   │       │       └── profile.ts
 │   │       ├── seed/
-│   │       │   ├── users.ts
-│   │       │   └── roles.ts
+│   │       │   ├── roles.ts
+│   │       │   └── users.ts
+│   │       ├── validators/
+│   │       │   └── index.ts
 │   │       └── index.ts
 │   ├── routes/
 │   │   └── index.ts
+│   ├── scripts/
+│   │   └── reset-db.ts
 │   ├── types/
 │   │   └── express.d.ts
 │   ├── utils/
@@ -467,20 +498,23 @@ Do these steps and the new module matches the project's enterprise-ready shape.
 │   │   ├── catchAsync.ts
 │   │   ├── clientIp.ts
 │   │   ├── cookieHelper.ts
+│   │   ├── format.ts
 │   │   ├── logger.ts
 │   │   ├── mongoHelper.ts
 │   │   ├── redisClient.ts
 │   │   ├── redisKeys.ts
 │   │   └── response.ts
 │   └── server.ts
-├── .env.prod
+├── .env.example
 ├── .gitignore
+├── CLAUDE.md
 ├── deploy.sh
 ├── Dockerfile
 ├── eslint.config.js
 ├── package-lock.json
 ├── package.json
 ├── postman_collection.json
+├── README.md
 └── tsconfig.json
 ```
 
@@ -506,9 +540,10 @@ user      ──→ auth (front door only)
 - `notification` is a **leaf** — everyone depends on it, it depends on no one.
   That's healthy: stable, low-level modules at the bottom.
 - ⚠️ **`auth ↔ user` is circular.** `auth` reads the user models; `user` calls back
-  into `auth` for three things it cannot own — hashing a password, revoking a
-  suspended account's sessions, and refreshing the display fields a session caches
-  (`user/controllers/admin/*/index.ts:1`, `user/seed/users.ts:2`). Session lifecycle
+  into `auth` for three things it cannot own — checking and hashing a password,
+  revoking a suspended account's sessions, and refreshing the display fields a session
+  caches (`user/controllers/admin/managedUser.ts:2`, `user/controllers/shared/profile.ts:2`,
+  `user/seed/users.ts:2`). Session lifecycle
   is genuinely `auth`'s job, so this edge is real rather than accidental.
   **The constraint that keeps it safe:** `user` imports `@auth/index` and nothing
   deeper, so the surface is four named functions instead of the whole module.
@@ -718,7 +753,7 @@ today** — decide on each before/at launch:
 | Area | Status today | Recommended decision |
 |------|--------------|----------------------|
 | **Automated tests** | ❌ none | Add Jest/Vitest + `__tests__/` per module; test services first |
-| **Rate limiting** | ❌ none | Add `express-rate-limit` (Redis store) — esp. on auth/OTP routes |
+| **Rate limiting** | ✅ own Redis limiter, `middlewares/rateLimit.ts` | See [../platform/rate-limiting.md](../platform/rate-limiting.md) |
 | **CI/CD pipeline** | ❌ no `.github/` | GitHub Actions: lint → type-check → test → build on every PR |
 | **Git hooks** | ❌ none | Husky + lint-staged to run lint/type-check pre-commit |
 | **API documentation** | ⚠️ Postman only | Add OpenAPI/Swagger so docs stay in sync with code |

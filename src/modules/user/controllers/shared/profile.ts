@@ -3,6 +3,7 @@ import { syncSessionUser } from '@auth/index';
 import ApiError from '@utils/apiError';
 import catchAsync from '@utils/catchAsync';
 import response from '@utils/response';
+import { formatFullName } from '@utils/format';
 import { applyProfileFields } from '@user/helpers/profileFields';
 import { updateImage, deleteImage } from '@user/helpers/image';
 
@@ -13,7 +14,7 @@ export const getProfile = catchAsync(async (req, res) => {
     user: {
       _id: user._id,
       email: user.email,
-      fullName: `${user.firstName} ${user.lastName}`.trim(),
+      fullName: formatFullName(user.firstName, user.lastName),
       phoneNumber: user.phone || '',
       dateOfBirth: user.dateOfBirth || null,
       profileImage: user.profileImage || null,
@@ -41,7 +42,7 @@ export const uploadImage = catchAsync(async (req, res) => {
   }
 
   const user = (await User.findById(req.user!._id))!;
-  user.profileImage = await updateImage(req.file, user.profileImage, 'profiles');
+  user.profileImage = await updateImage(req.file, user.profileImage);
   await user.save();
   await syncSessionUser(String(user._id), user);
 

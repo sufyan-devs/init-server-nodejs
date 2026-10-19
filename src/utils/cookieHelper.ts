@@ -9,8 +9,9 @@ const ROLE_COOKIE_MAP: Record<string, string> = {
   VENDOR: `${BASE_COOKIE_NAME}_vendor`,
   BUSINESS_ASSOCIATE: `${BASE_COOKIE_NAME}_associate`,
   CUSTOMER: `${BASE_COOKIE_NAME}_customer`,
-  RESET: `${BASE_COOKIE_NAME}_reset`,
 };
+
+const RESET_COOKIE_NAME = `${BASE_COOKIE_NAME}_reset`;
 
 const ALL_SESSION_COOKIES = [
   ROLE_COOKIE_MAP.ADMIN,
@@ -34,16 +35,20 @@ const getCookieOptions = (): CookieOptions => ({
   ...(envConfig.SESSION.COOKIE.DOMAIN ? { domain: envConfig.SESSION.COOKIE.DOMAIN } : {}),
 });
 
-const setSessionCookie = (res: Response, token: string, roleOrOptions?: string | CookieOptions): void => {
-  const role = typeof roleOrOptions === 'string' ? roleOrOptions : undefined;
-  const overrides = typeof roleOrOptions === 'object' ? roleOrOptions : {};
-  const cookieName = getRoleCookieName(role);
-  res.cookie(cookieName, token, { ...getCookieOptions(), ...overrides });
+const setSessionCookie = (res: Response, token: string, role?: string): void => {
+  res.cookie(getRoleCookieName(role), token, getCookieOptions());
 };
 
 const clearSessionCookie = (res: Response, role?: string): void => {
-  const cookieName = getRoleCookieName(role);
-  res.cookie(cookieName, '', { ...getCookieOptions(), maxAge: 0 });
+  res.cookie(getRoleCookieName(role), '', { ...getCookieOptions(), maxAge: 0 });
+};
+
+const setResetCookie = (res: Response, token: string): void => {
+  res.cookie(RESET_COOKIE_NAME, token, getCookieOptions());
+};
+
+const clearResetCookie = (res: Response): void => {
+  res.cookie(RESET_COOKIE_NAME, '', { ...getCookieOptions(), maxAge: 0 });
 };
 
 // A cookie's Max-Age is fixed when written while the Redis TTL slides on use, so a
@@ -79,17 +84,17 @@ const getSessionToken = (req: Request, role?: string): SessionTokenResult | null
 };
 
 const getResetToken = (req: Request): string | null =>
-  readCookie(req, ROLE_COOKIE_MAP.RESET) ?? null;
-
-const COOKIE_NAME = BASE_COOKIE_NAME;
+  readCookie(req, RESET_COOKIE_NAME) ?? null;
 
 export {
-  COOKIE_NAME,
   getRoleCookieName,
   getCookieOptions,
   setSessionCookie,
   refreshSessionCookie,
   clearSessionCookie,
+  setResetCookie,
+  clearResetCookie,
+  readCookie,
   getSessionToken,
   getResetToken,
 };

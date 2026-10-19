@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { envConfig } from '@config/env';
 import { logger } from '@utils/logger';
+import { errorMessage } from '@utils/format';
 
 export const connectDatabase = async (): Promise<void> => {
   logger.info("MongoDB connecting...");
@@ -8,7 +9,7 @@ export const connectDatabase = async (): Promise<void> => {
     await mongoose.connect(envConfig.MONGO_URI);
     logger.info(`MongoDB connected [${envConfig.NODE_ENV}]`);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     logger.error(`MongoDB connection failed: ${message}`);
     throw err;
   }

@@ -1,12 +1,8 @@
-import { generateOTP, checkSendRateLimit, storeOTP, verifyOTP, clearOTPKeys, OTP_PURPOSE } from '@auth/helpers/otp';
+import { generateOTP, checkSendRateLimit, storeOTP, verifyOTP, clearOTPKeys, OTP_PURPOSE, OTP_RESULT } from '@auth/helpers/otp';
 import { sendEmail, templates } from '@notification/email';
 import AuthErrors from '@constants/authErrors';
 import User, { USER_STATUS } from '@user/models/User';
-import {
-  setSessionCookie,
-  clearSessionCookie,
-  getResetToken,
-} from '@utils/cookieHelper';
+import { setResetCookie, clearResetCookie, getResetToken } from '@utils/cookieHelper';
 import * as authHelper from './authHelper';
 import {
   createResetSession,
@@ -18,22 +14,17 @@ import lockout from '@auth/services/lockout.service';
 import catchAsync from '@utils/catchAsync';
 import response from '@utils/response';
 import ApiError from '@utils/apiError';
-import { normalizeEmail, formatWaitTime } from '@utils/format';
+import { formatWaitTime, errorMessage } from '@utils/format';
 import { logger } from '@utils/logger';
 
 const PURPOSE = OTP_PURPOSE.PASSWORD_RESET;
 
 export const forgotPassword = catchAsync(async (req, res) => {
   const { email } = req.body;
-  const normalized = normalizeEmail(email);
 
-  if (!normalized) {
-    return response.error(res, "Email is required", 400);
-  }
+  const user = await User.findOne({ email, status: USER_STATUS.ACTIVE });
 
-  const user = await User.findOne({ email: normalized, status: USER_STATUS.ACTIVE });
-
-  const rateLimit = await checkSendRateLimit(normalized, PURPOSE);
+  const rateLimit = await checkSendRateLimit(email, PURPOSE);
   if (!rateLimit.allowed) {
     const wait = rateLimit.waitSeconds;
     return response.error(
@@ -49,27 +40,24 @@ export const forgotPassword = catchAsync(async (req, res) => {
 
   const resetOTP = generateOTP();
   // Stored even for an unknown address: otherwise the attempt count differs and leaks existence.
-  const stored = await storeOTP(normalized, resetOTP, PURPOSE);
-  if (!stored) {
-    throw ApiError.internal("Failed to process request. Please try again.");
-  }
+  await storeOTP(email, resetOTP, PURPOSE);
 
   if (user) {
     const tpl = templates.passwordResetOtp({
-      firstName: `${user.firstName} ${user.lastName}`.trim(),
+      firstName: user.fullName,
       otpCode: resetOTP,
     });
     sendEmail({
-      to: normalized,
+      to: email,
       subject: tpl.subject,
       html: tpl.html,
       type: "password_reset",
     });
   } else {
-    logger.warn("Password reset requested for an unknown address", { email: normalized });
+    logger.warn("Password reset requested for an unknown address", { email });
   }
 
-  clearSessionCookie(res, 'RESET');
+  clearResetCookie(res);
 
   return response.success(
     res,
@@ -81,58 +69,47 @@ export const forgotPassword = catchAsync(async (req, res) => {
 
 export const verifyResetOTP = catchAsync(async (req, res) => {
   const { email, otp } = req.body;
-  const normalized = normalizeEmail(email);
-  const code = String(otp ?? '').trim();
 
-  if (!normalized || !code) {
-    return response.error(
-      res,
-      "Email and verification code are required.",
-      400,
-    );
+  const result = await verifyOTP(email, otp, PURPOSE);
+  if (result.status === OTP_RESULT.LOCKED) {
+    return response.error(res, {
+      code: AuthErrors.OTP_MAX_ATTEMPTS.code,
+      message: `Too many incorrect attempts. Please wait ${formatWaitTime(result.waitSeconds)} before trying again.`,
+    }, 429, { waitSeconds: result.waitSeconds });
   }
-
-  const result = await verifyOTP(normalized, code, PURPOSE);
-  if (!result.valid) {
-    if (result.attemptsExceeded) {
-      const wait = result.waitSeconds;
-      return response.error(res, {
-        code: AuthErrors.OTP_MAX_ATTEMPTS.code,
-        message: `Too many incorrect attempts. Please wait ${formatWaitTime(wait)} before trying again.`,
-      }, 429, { waitSeconds: wait });
-    }
+  if (result.status === OTP_RESULT.WRONG) {
     return response.error(res, {
       code: AuthErrors.INVALID_OTP.code,
       message: `Invalid verification code. ${result.remainingAttempts} attempt(s) remaining.`,
     }, 400, { remainingAttempts: result.remainingAttempts });
   }
+  if (result.status === OTP_RESULT.EXPIRED) {
+    return response.error(res, {
+      code: AuthErrors.INVALID_OTP.code,
+      message: "This code has expired. Please request a new one.",
+    }, 400);
+  }
+
+  // Burned before the reset session exists: if the delete fails, no session was minted
+  // from a code that is still valid.
+  await clearOTPKeys(email, PURPOSE);
 
   let resetId: string;
   try {
-    resetId = await createResetSession(normalized);
-    setSessionCookie(res, resetId, 'RESET');
+    resetId = await createResetSession(email);
   } catch (err: unknown) {
     logger.error("passwordReset.verifyResetOTP failed to create redis session", {
-      error: (err as Error).message || err,
+      error: errorMessage(err),
     });
     throw ApiError.internal("Session creation failed. Please try again.");
   }
-
-  await clearOTPKeys(normalized, PURPOSE);
+  setResetCookie(res, resetId);
 
   return response.success(res, null, 200, "OTP verified. Proceed to reset password.");
 });
 
 export const resetPassword = catchAsync(async (req, res) => {
   const { email, newPassword } = req.body;
-  const normalized = normalizeEmail(email);
-
-  if (!normalized) {
-    return response.error(res, "Email is required", 400);
-  }
-  if (!newPassword || !newPassword.trim()) {
-    return response.error(res, "New password is required", 400);
-  }
 
   const resetSessionId = getResetToken(req);
   if (!resetSessionId) {
@@ -140,16 +117,16 @@ export const resetPassword = catchAsync(async (req, res) => {
   }
 
   const storedEmail = await readResetSession(resetSessionId);
-  if (!storedEmail || storedEmail !== normalized) {
+  if (!storedEmail || storedEmail !== email) {
     return response.error(res, AuthErrors.INVALID_RESET_SESSION, 401);
   }
 
   await assertPasswordAllowed(newPassword);
 
   await clearResetSession(resetSessionId);
-  clearSessionCookie(res, 'RESET');
+  clearResetCookie(res);
 
-  const user = await User.findOne({ email: normalized, status: USER_STATUS.ACTIVE });
+  const user = await User.findOne({ email, status: USER_STATUS.ACTIVE });
   if (!user) {
     return response.notFound(res, AuthErrors.USER_NOT_FOUND);
   }

@@ -96,8 +96,10 @@ Notes worth internalising:
 ## Tokens and cookies — as built
 
 There is one token: an opaque `<sid>.<secret>` in an httpOnly, Secure, SameSite cookie, named per
-portal (`<base>_admin`, `<base>_vendor`, `<base>_associate`, `<base>_customer`, `<base>_reset`).
-Redis stores only `SHA-256(secret)`. That per-portal split is why an admin cookie cannot be replayed
+portal (`<base>_admin`, `<base>_vendor`, `<base>_associate`, `<base>_customer`).
+Redis stores only `SHA-256(secret)`. A separate `<base>_reset` cookie holds a password-reset id
+between `/verify-otp` and `/reset-password`; it is not a session and is outside the portal map
+(`utils/cookieHelper.ts:14,46-52`). That per-portal split is why an admin cookie cannot be replayed
 against the customer API — it should become env-driven rather than keyed off the role enum.
 
 A second, deliberately **readable** cookie carries the CSRF token, which the client echoes in

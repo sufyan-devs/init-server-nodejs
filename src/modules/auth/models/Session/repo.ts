@@ -13,6 +13,7 @@ import {
 } from '@utils/redisKeys';
 import { logger } from '@utils/logger';
 import type { SessionRecord, SessionRepo } from './types';
+import { errorMessage } from '@utils/format';
 
 const TTL_REFRESH_FRACTION = 0.5;
 
@@ -39,7 +40,7 @@ const parseSession = (raw: string | null, sid: string): SessionRecord | null => 
     }
     return parsed as SessionRecord;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     logger.error('Session: corrupt JSON in Redis, ignoring', { sid, error: message });
     return null;
   }

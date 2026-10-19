@@ -1,6 +1,7 @@
 import AuditLog from '@audit/models/AuditLog';
 import type { AuditEntry } from '@audit/models/AuditLog';
 import { logger } from '@utils/logger';
+import { errorMessage } from '@utils/format';
 
 // Must never throw: an audit write is evidence, not a precondition for the request.
 const record = async (entry: AuditEntry): Promise<void> => {
@@ -10,7 +11,7 @@ const record = async (entry: AuditEntry): Promise<void> => {
     logger.error('Audit write failed', {
       action: entry.action,
       outcome: entry.outcome,
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
   }
 };

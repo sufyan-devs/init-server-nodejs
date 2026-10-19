@@ -9,6 +9,12 @@ const assertKey = (key: string): void => {
   if (!key || key.trim() === "") throw new Error("Redis key cannot be empty");
 };
 
+const assertTtl = (key: string, ttlSeconds: number): void => {
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    throw new Error(`Refusing to set a TTL on ${key}: must be a positive number, got ${ttlSeconds}`);
+  }
+};
+
 const IDENTIFIER_HASH_CHARS = 32;
 
 // A raw IPv6 address would split one segment into several (`:` is the delimiter), and
@@ -33,9 +39,7 @@ export async function setKey(key: string, value: string, ttlSeconds?: number): P
     await redisClient.set(key, value);
     return;
   }
-  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
-    throw new Error(`Refusing to set ${key}: TTL must be a positive number, got ${ttlSeconds}`);
-  }
+  assertTtl(key, ttlSeconds);
   await redisClient.set(key, value, { EX: ttlSeconds });
 }
 
@@ -75,9 +79,7 @@ export async function getTTL(key: string): Promise<number> {
 export async function expireKey(key: string, ttlSeconds: number): Promise<void> {
   assertConnected();
   assertKey(key);
-  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
-    throw new Error(`Refusing to expire ${key}: TTL must be a positive number, got ${ttlSeconds}`);
-  }
+  assertTtl(key, ttlSeconds);
   await redisClient.expire(key, ttlSeconds);
 }
 
@@ -101,7 +103,7 @@ export async function getSetMembers(key: string): Promise<string[]> {
   return await redisClient.sMembers(key);
 }
 
-export interface CounterHit {
+interface CounterHit {
   count: number;
   ttlSeconds: number;
 }
@@ -139,7 +141,10 @@ export async function incrementWithTTL(
 ): Promise<CounterHit[]> {
   assertConnected();
   if (keys.length === 0) return [];
-  keys.forEach(assertKey);
+  keys.forEach((key) => {
+    assertKey(key);
+    assertTtl(key, ttlSeconds);
+  });
 
   return Promise.all(keys.map((key) => incrementOne(key, ttlSeconds)));
 }

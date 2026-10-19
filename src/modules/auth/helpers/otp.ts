@@ -1,7 +1,8 @@
 import { randomInt } from 'node:crypto';
-import { setKey, getKey, delKey, incrementKey, getTTL, identifierHash } from '@utils/redisKeys';
+import { setKey, getKey, delKey, incrementKey, incrementWithTTL, getTTL, identifierHash } from '@utils/redisKeys';
 import { envConfig } from '@config/env';
 import { logger } from '@utils/logger';
+import { errorMessage } from '@utils/format';
 
 type OtpKeyPart = 'code' | 'attempts' | 'send_count';
 
@@ -14,17 +15,22 @@ interface OTPKeys {
   sendCount: string;
 }
 
-export interface RateLimitResult {
+interface RateLimitResult {
   allowed: boolean;
   waitSeconds: number | null;
 }
 
-export interface OTPVerifyResult {
-  valid: boolean;
-  attemptsExceeded: boolean;
-  remainingAttempts: number | null;
-  waitSeconds: number | null;
-}
+export const OTP_RESULT = {
+  VALID: 'valid',
+  EXPIRED: 'expired',
+  WRONG: 'wrong',
+  LOCKED: 'locked',
+} as const;
+
+type OTPVerifyResult =
+  | { status: typeof OTP_RESULT.VALID | typeof OTP_RESULT.EXPIRED }
+  | { status: typeof OTP_RESULT.WRONG; remainingAttempts: number }
+  | { status: typeof OTP_RESULT.LOCKED; waitSeconds: number | null };
 
 const otpKeys = (purpose: OtpPurpose, email: string): OTPKeys => ({
   code: otpKey(purpose, email, 'code'),
@@ -34,9 +40,8 @@ const otpKeys = (purpose: OtpPurpose, email: string): OTPKeys => ({
 
 export function generateOTP(): string {
   const length = envConfig.OTP.LENGTH;
-  // randomInt, not Math.random: this code gates password reset, and V8's PRNG is
-  // reconstructable from a few observed outputs. randomInt is also unbiased,
-  // which `Math.floor(random * 10)` is not.
+  // randomInt, not Math.random: this gates password reset, and V8's PRNG is
+  // reconstructable from a few observed outputs.
   let otp = "";
   for (let i = 0; i < length; i++) otp += String(randomInt(0, 10));
   return otp;
@@ -47,7 +52,9 @@ export const OTP_PURPOSE = {
   PASSWORD_RESET: 'password_reset',
 } as const;
 
-export type OtpPurpose = (typeof OTP_PURPOSE)[keyof typeof OTP_PURPOSE];
+type OtpPurpose = (typeof OTP_PURPOSE)[keyof typeof OTP_PURPOSE];
+
+const waitFrom = (ttl: number): number | null => (ttl > 0 ? ttl : null);
 
 export async function checkSendRateLimit(email: string, purpose: OtpPurpose): Promise<RateLimitResult> {
   const keys = otpKeys(purpose, email);
@@ -56,8 +63,7 @@ export async function checkSendRateLimit(email: string, purpose: OtpPurpose): Pr
   try {
     const count = parseInt((await getKey(keys.sendCount)) || "0", 10);
     if (count >= max) {
-      const ttl = await getTTL(keys.sendCount);
-      return { allowed: false, waitSeconds: ttl > 0 ? ttl : null };
+      return { allowed: false, waitSeconds: waitFrom(await getTTL(keys.sendCount)) };
     }
     return { allowed: true, waitSeconds: null };
   } catch (error: unknown) {
@@ -67,116 +73,42 @@ export async function checkSendRateLimit(email: string, purpose: OtpPurpose): Pr
     logger.error('Send rate-limit check failed', {
       purpose,
       email: identifierHash(email),
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage(error),
     });
     throw error;
   }
 }
 
-export async function storeOTP(email: string, otp: string, purpose: OtpPurpose): Promise<boolean> {
-  try {
-    const keys = otpKeys(purpose, email);
-    const ttlSeconds = envConfig.OTP.EXPIRY_MINUTES * 60;
-    const sendWindowSeconds = envConfig.OTP.SEND.WINDOW_MINUTES * 60;
+export async function storeOTP(email: string, otp: string, purpose: OtpPurpose): Promise<void> {
+  const keys = otpKeys(purpose, email);
+  const ttlSeconds = envConfig.OTP.EXPIRY_MINUTES * 60;
 
-    await setKey(keys.code, otp, ttlSeconds);
-    await setKey(keys.attempts, "0", ttlSeconds);
-
-    const exists = await getKey(keys.sendCount);
-    if (!exists) {
-      await setKey(keys.sendCount, "1", sendWindowSeconds);
-    } else {
-      await incrementKey(keys.sendCount);
-    }
-
-    return true;
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error('Failed to store OTP', {
-      purpose,
-      email: identifierHash(email),
-      error: message,
-    });
-    return false;
-  }
+  await setKey(keys.code, otp, ttlSeconds);
+  await setKey(keys.attempts, "0", ttlSeconds);
+  await incrementWithTTL([keys.sendCount], envConfig.OTP.SEND.WINDOW_MINUTES * 60);
 }
 
 export async function verifyOTP(email: string, otp: string, purpose: OtpPurpose): Promise<OTPVerifyResult> {
   const maxAttempts = envConfig.OTP.VERIFY.MAX_ATTEMPTS;
+  const keys = otpKeys(purpose, email);
 
-  try {
-    const keys = otpKeys(purpose, email);
+  const storedOTP = await getKey(keys.code);
+  if (!storedOTP) return { status: OTP_RESULT.EXPIRED };
 
-    const storedOTP = await getKey(keys.code);
-    if (!storedOTP)
-      return {
-        valid: false,
-        attemptsExceeded: false,
-        remainingAttempts: null,
-        waitSeconds: null,
-      };
-
-    const attempts = parseInt((await getKey(keys.attempts)) || "0", 10);
-    if (attempts >= maxAttempts) {
-      const ttl = await getTTL(keys.attempts);
-      return {
-        valid: false,
-        attemptsExceeded: true,
-        remainingAttempts: 0,
-        waitSeconds: ttl > 0 ? ttl : null,
-      };
-    }
-
-    if (storedOTP !== otp) {
-      await incrementKey(keys.attempts);
-      const newAttempts = attempts + 1;
-      if (newAttempts >= maxAttempts) {
-        const ttl = await getTTL(keys.attempts);
-        return {
-          valid: false,
-          attemptsExceeded: true,
-          remainingAttempts: 0,
-          waitSeconds: ttl > 0 ? ttl : null,
-        };
-      }
-      return {
-        valid: false,
-        attemptsExceeded: false,
-        remainingAttempts: maxAttempts - newAttempts,
-        waitSeconds: null,
-      };
-    }
-
-    return {
-      valid: true,
-      attemptsExceeded: false,
-      remainingAttempts: null,
-      waitSeconds: null,
-    };
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    logger.error('OTP verification failed', {
-      purpose,
-      email: identifierHash(email),
-      error: message,
-    });
-    return {
-      valid: false,
-      attemptsExceeded: false,
-      remainingAttempts: null,
-      waitSeconds: null,
-    };
+  // Counted before comparing, from INCR's own reply: parallel guesses that read the
+  // count first would all see the same value and overrun the cap together.
+  const attempts = await incrementKey(keys.attempts);
+  if (attempts > maxAttempts) {
+    return { status: OTP_RESULT.LOCKED, waitSeconds: waitFrom(await getTTL(keys.attempts)) };
   }
+  if (storedOTP === otp) return { status: OTP_RESULT.VALID };
+  if (attempts === maxAttempts) {
+    return { status: OTP_RESULT.LOCKED, waitSeconds: waitFrom(await getTTL(keys.attempts)) };
+  }
+  return { status: OTP_RESULT.WRONG, remainingAttempts: maxAttempts - attempts };
 }
 
 export async function clearOTPKeys(email: string, purpose: OtpPurpose): Promise<void> {
   const keys = otpKeys(purpose, email);
-  try {
-    await Promise.all([delKey(keys.code), delKey(keys.attempts)]);
-  } catch (error: unknown) {
-    logger.warn('OTP key cleanup failed', {
-      purpose,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  await Promise.all([delKey(keys.code), delKey(keys.attempts)]);
 }

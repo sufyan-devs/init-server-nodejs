@@ -11,6 +11,7 @@ import AuthErrors from '@constants/authErrors';
 import { generateOTP, storeOTP, OTP_PURPOSE } from '@auth/helpers/otp';
 import { sendEmail, templates } from '@notification/email';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
+import { formatFullName } from '@utils/format';
 
 interface RegisterData {
   email: string;
@@ -145,10 +146,9 @@ const register = async (data: RegisterData, options: RegisterOptions = {}) => {
 
   if (needsEmailVerification && !skipEmailVerification) {
     const otp = generateOTP();
-    const stored = await storeOTP(normalizedEmail, otp, OTP_PURPOSE.VERIFY_EMAIL);
-    if (!stored) throw ApiError.internal('Could not start email verification. Please try again.');
+    await storeOTP(normalizedEmail, otp, OTP_PURPOSE.VERIFY_EMAIL);
     const tpl = templates.emailVerificationOtp({
-      firstName: `${firstName} ${lastName}`.trim(),
+      firstName: formatFullName(firstName, lastName),
       otpCode: otp,
     });
     sendEmail({

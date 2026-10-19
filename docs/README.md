@@ -41,7 +41,7 @@ somebody's client project six months from now. These rules are not style prefere
 **Every factual claim about code must come from reading that code**, in the session you write it.
 Not from memory, not from the design document, not from what the function name implies.
 
-- Cite the source: `` `authenticate.ts:57` `` or `` `User/schema.ts:63-68` ``. A reader must be able
+- Cite the source: `` `authenticate.ts:67` `` or `` `User/schema.ts:58-60` ``. A reader must be able
   to check you in ten seconds.
 - If you cannot verify it, do not write it. "I believe" and "should" do not belong in a factual
   description.

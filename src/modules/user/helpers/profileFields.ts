@@ -9,7 +9,7 @@ interface ProfileFields {
 // The schema stores first and last separately; every client sends one field.
 export const splitFullName = (fullName: string): { firstName: string; lastName: string } => {
   const parts = fullName.trim().split(/\s+/);
-  return { firstName: parts[0], lastName: parts.slice(1).join(' ') || parts[0] };
+  return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
 };
 
 export const applyProfileFields = (user: IUser, fields: ProfileFields): void => {

@@ -20,6 +20,7 @@ import AuthErrors from '@constants/authErrors';
 import ApiError from '@utils/apiError';
 import { logger } from '@utils/logger';
 import { setKey, getKey, delKey } from '@utils/redisKeys';
+import { errorMessage } from '@utils/format';
 
 const TOKEN_SEPARATOR = '.';
 const TOKEN_PART_COUNT = 2;
@@ -53,9 +54,6 @@ const digestsMatch = (candidate: string, stored: string): boolean => {
   if (left.length !== right.length) return false;
   return timingSafeEqual(left, right);
 };
-
-const errorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
 
 const toDevice = (session: SessionRecord, currentSid?: string): SessionDevice => ({
   sid: session.sid,
@@ -151,6 +149,8 @@ const createSession = async (input: CreateSessionInput): Promise<CreatedSession>
 
   return { sid, token: `${sid}${TOKEN_SEPARATOR}${secret}` };
 };
+
+const sidFromToken = (token: string): string => token.split(TOKEN_SEPARATOR)[0];
 
 const verifySessionToken = async (token: string): Promise<VerifySessionResult> => {
   const parts = (token || '').split(TOKEN_SEPARATOR);
@@ -284,6 +284,7 @@ const sessionService: SessionService = {
 export default sessionService;
 export {
   toSessionUser,
+  sidFromToken,
   cookieMaxAgeMs,
   createResetSession,
   readResetSession,

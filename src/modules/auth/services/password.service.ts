@@ -10,6 +10,7 @@ import AuthErrors from '@constants/authErrors';
 import { envConfig } from '@config/env';
 import { logger } from '@utils/logger';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
+import { errorMessage } from '@utils/format';
 
 const ARGON2_OPTIONS = {
   type: argon2.argon2id,
@@ -53,7 +54,7 @@ const upgradeHash = (userId: string, password: string): void => {
     .catch((error: unknown) => {
       logger.warn('Password hash upgrade failed', {
         userId,
-        reason: error instanceof Error ? error.message : String(error),
+        reason: errorMessage(error),
       });
     });
 };
@@ -128,7 +129,7 @@ const assertPasswordAllowed = async (password: string): Promise<void> => {
   } catch (error: unknown) {
     // Fail open: a third-party outage must not stop people signing up.
     logger.warn('Breached-password check skipped', {
-      reason: error instanceof Error ? error.message : String(error),
+      reason: errorMessage(error),
     });
     return;
   }

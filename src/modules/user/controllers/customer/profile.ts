@@ -2,6 +2,7 @@ import User from '@user/models/User';
 import UserRole, { USER_ROLE_STATUS } from '@user/models/UserRole';
 import catchAsync from '@utils/catchAsync';
 import response from '@utils/response';
+import { formatFullName } from '@utils/format';
 
 export const getProfile = catchAsync(async (req, res) => {
   const user = (await User.findById(req.user!._id).lean())!;
@@ -13,7 +14,7 @@ export const getProfile = catchAsync(async (req, res) => {
     user: {
       _id: user._id,
       email: user.email,
-      fullName: `${user.firstName} ${user.lastName}`.trim(),
+      fullName: formatFullName(user.firstName, user.lastName),
       phoneNumber: user.phone || '',
       dateOfBirth: user.dateOfBirth || null,
       profileImage: user.profileImage || null,

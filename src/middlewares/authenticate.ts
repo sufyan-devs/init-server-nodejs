@@ -8,6 +8,7 @@ import AuthErrors, { type AuthError } from '@constants/authErrors';
 import { getSessionToken, getCookieOptions, refreshSessionCookie } from '@utils/cookieHelper';
 import { logger } from '@utils/logger';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
+import { errorMessage } from '@utils/format';
 
 const INVALID_REASON_ERRORS: Record<SessionInvalidReason, AuthError> = {
   [SESSION_INVALID_REASON.NOT_FOUND]: AuthErrors.SESSION_NOT_FOUND,
@@ -54,7 +55,7 @@ const authenticate = (portalRole?: string) => {
       next();
     } catch (error: unknown) {
       if (error instanceof ApiError) return next(error);
-      logger.error('Session verification failed', { error: error instanceof Error ? error.message : String(error) });
+      logger.error('Session verification failed', { error: errorMessage(error) });
       next(ApiError.fromAuthError(401, AuthErrors.SESSION_EXPIRED));
     }
   };

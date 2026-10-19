@@ -50,7 +50,7 @@ warning and continuing.
 | Providers | `GOOGLE_AUTH_ENABLED`, `GOOGLE_CLIENT_IDS` |
 | Email / OTP | SMTP settings, OTP length and expiry |
 
-The API is mounted at a fixed `/api/v1` (`src/server.ts:95`) — it is not configurable, because a
+The API is mounted at a fixed `/api/v1` (`src/server.ts:103`) — it is not configurable, because a
 prefix that varies per deployment makes every client's docs, Postman collection and frontend differ
 for no benefit.
 

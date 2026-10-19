@@ -18,6 +18,9 @@ const phoneNumber = z.union([
 // Parsed here so the model receives the Date its schema declares, not a string.
 const dateOfBirth = z.union([z.iso.date(), z.iso.datetime()]).transform((value) => new Date(value));
 
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 100;
+
 export const idParamSchema = z.object({ id: objectId });
 
 // sortBy reaches a $sort key and search reaches a $regex, so both are allow-listed
@@ -25,10 +28,10 @@ export const idParamSchema = z.object({ id: objectId });
 // bracketed param, which is why every field is parsed and not just cast.
 export const managedUserListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(10),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
   search: z.string().trim().max(100).default(''),
-  isActive: z.enum(['true', 'false']).optional(),
-  isVerified: z.enum(['true', 'false']).optional(),
+  isActive: z.stringbool().optional(),
+  isVerified: z.stringbool().optional(),
   sortBy: z.enum(['fullName', 'createdAt', 'email']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
@@ -45,4 +48,6 @@ export const createManagedUserSchema = z.strictObject({
   password,
   phoneNumber: phoneNumber.optional(),
 });
+
+export type ManagedUserListQuery = z.infer<typeof managedUserListQuerySchema>;
 

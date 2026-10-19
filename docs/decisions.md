@@ -92,7 +92,8 @@ verification — rewrite the copy in place (`syncSessionUser`).
 
 **The trade-off we accepted:** every write that touches a display field must call one of those two
 functions, and a missed call shows up as stale data in `/me` rather than as a test failure. That is
-22 call sites today (12 admin, 9 self-service profile, 1 email verification). The alternative — re-reading the user on every request — costs a database round
+8 call sites today (4 admin in `user/controllers/admin/managedUser.ts`, 3 self-service in
+`user/controllers/shared/profile.ts`, 1 email verification). The alternative — re-reading the user on every request — costs a database round
 trip on *every authenticated request forever*, which is the thing hard rule 7 exists to prevent.
 
 **Revisit if** a fourth kind of consumer needs to react to user state changes; at that point the

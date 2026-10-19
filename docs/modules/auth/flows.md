@@ -4,7 +4,7 @@
 > self-service profile edit reflected without re-login, admin suspension revoking a live session (401),
 > logout with and without CSRF (200 / 403), and identical responses for known vs unknown addresses on
 > forgot-password. **Not exercised:** account lockout, Google OAuth (needs a real ID token), OTP email
-> delivery. No production build has been run.
+> delivery. No production build has been run. Citations re-checked against the code on 2026-10-19.
 > This describes what the code does now. There is no JWT and no refresh token — see
 > [../../decisions.md](../../decisions.md) for why they were dropped.
 
@@ -77,23 +77,26 @@ sequenceDiagram
 less than half the lifetime remains, and it is fire-and-forget.
 
 The display fields `req.user` promises (`email`, `firstName`, `lastName`, `emailVerified`,
-`profileImage`) are copied into the session record at login (`session.service.ts:108-114`) and read
-straight back out (`middlewares/authenticate.ts:23-32`), so no Mongo read is left on this path.
+`profileImage`) are copied into the session record at login (`session.service.ts:116-122`) and read
+straight back out (`middlewares/authenticate.ts:24-33`), so no Mongo read is left on this path.
 
 **Keeping the copy honest.** A cached field is a stale field unless something updates it:
 
 | When | What happens | Where |
 |---|---|---|
-| Account suspended | **every session revoked before the status is saved** | `user/controllers/admin/*/index.ts` → `revokeUserSessions` |
-| Email verified | that user's sessions are rewritten | `auth/controllers/shared/emailVerification.ts` |
-| Name or avatar edited **by an admin** | that user's sessions are rewritten | `user/controllers/admin/*/index.ts` → `syncSessionUser` |
-| Name or avatar edited **by the user** | that user's sessions are rewritten | `user/controllers/{customer,vendor,associate}/profile.ts` → `syncSessionUser` |
+| Account suspended | **every session revoked before the status is saved** | `user/controllers/admin/managedUser.ts:231` → `revokeUserSessions` |
+| Email verified | that user's sessions are rewritten | `auth/controllers/shared/emailVerification.ts:42` |
+| Name or avatar edited **by an admin** | that user's sessions are rewritten | `user/controllers/admin/managedUser.ts:217,254,269` → `syncSessionUser` |
+| Name or avatar edited **by the user** | that user's sessions are rewritten | `user/controllers/shared/profile.ts:34,47,62` → `syncSessionUser` |
 
-A rewrite uses `SET ... KEEPTTL` (`utils/redisKeys.ts:29-35`), so refreshing display fields never
+A rewrite uses `SET ... KEEPTTL` (`utils/redisKeys.ts:48-52`), so refreshing display fields never
 extends a session. Without that, editing an avatar on one device would push every other device's
 idle expiry back to a full lifetime.
 
-22 call sites in total (12 admin, 9 self-service, 1 email verification). The self-service row is the
+8 call sites in total (4 admin, 3 self-service, 1 email verification). The admin ones sit in one
+controller factory that the vendor, customer and associate admin routers all share
+(`user/routes/admin/managedUser.ts:21`), and the self-service ones in one file all three portals'
+profile routes import. The self-service row is the
 easy one to forget and the most visible when missed — it is the path a user actually takes to rename
 themselves, and skipping it leaves `/me` showing the old name until the next login.
 

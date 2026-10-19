@@ -1,4 +1,5 @@
-import { hashPassword, revokeUserSessions, syncSessionUser } from '@auth/index';
+import type { Request } from 'express';
+import { assertPasswordAllowed, hashPassword, revokeUserSessions, syncSessionUser } from '@auth/index';
 import User, { USER_STATUS } from '@user/models/User';
 import UserRole, { USER_ROLE_STATUS } from '@user/models/UserRole';
 import type { RoleCode } from '@user/models/Role';
@@ -7,6 +8,7 @@ import ApiError from '@utils/apiError';
 import response from '@utils/response';
 import { saveImage, updateImage, deleteImage } from '@user/helpers/image';
 import { applyProfileFields, splitFullName } from '@user/helpers/profileFields';
+import type { ManagedUserListQuery } from '@user/validators';
 
 interface ManagedUserLabels {
   itemKey: string;
@@ -21,27 +23,26 @@ const makeManagedUserController = (
 ) => {
   const NOT_FOUND_MESSAGE = `${title} not found`;
 
-  const list = catchAsync(async (req, res) => {
-    const {
-      page = 1,
-      limit,
-      search = '',
-      isActive,
-      isVerified,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
-    } = req.query;
+  const findManagedUser = async (req: Request) => {
+    const { id } = req.params;
+    const userRole = await UserRole.exists({ userId: id, roleCode });
+    if (!userRole) throw ApiError.notFound(NOT_FOUND_MESSAGE);
 
-    // Both are numbers by the time they arrive: managedUserListQuerySchema coerces them.
-    const pageNum = Number(page);
-    const limitNum = Number(limit);
-    const skip = (pageNum - 1) * limitNum;
+    const user = await User.findOne({ _id: id, status: { $ne: USER_STATUS.DELETED } });
+    if (!user) throw ApiError.notFound(NOT_FOUND_MESSAGE);
+    return user;
+  };
+
+  const list = catchAsync(async (req, res) => {
+    const { page, limit, search, isActive, isVerified, sortBy, sortOrder } =
+      req.query as unknown as ManagedUserListQuery;
+    const skip = (page - 1) * limit;
 
     const userMatch: Record<string, unknown> = {};
     if (isActive !== undefined) {
-      userMatch.status = isActive === 'true' ? USER_STATUS.ACTIVE : USER_STATUS.SUSPENDED;
+      userMatch.status = isActive ? USER_STATUS.ACTIVE : USER_STATUS.SUSPENDED;
     }
-    if (isVerified !== undefined) userMatch.emailVerified = isVerified === 'true';
+    if (isVerified !== undefined) userMatch.emailVerified = isVerified;
 
     const lookupSubPipeline: Record<string, unknown>[] = [];
     if (Object.keys(userMatch).length) lookupSubPipeline.push({ $match: userMatch });
@@ -89,8 +90,8 @@ const makeManagedUserController = (
       },
     ];
 
-    if ((search as string).trim()) {
-      const searchRegex = { $regex: (search as string).trim(), $options: 'i' };
+    if (search) {
+      const searchRegex = { $regex: search, $options: 'i' };
       pipeline.push({
         $match: {
           $or: [{ fullName: searchRegex }, { email: searchRegex }, { phoneNumber: searchRegex }],
@@ -107,7 +108,7 @@ const makeManagedUserController = (
         },
       },
       { $skip: skip },
-      { $limit: limitNum },
+      { $limit: limit },
       {
         $project: {
           _id: '$userId',
@@ -132,37 +133,23 @@ const makeManagedUserController = (
     return response.success(res, {
       [listKey]: items,
       pagination: {
-        page: pageNum,
-        limit: limitNum,
+        page,
+        limit,
         total,
-        pages: Math.ceil(total / limitNum),
-        hasNext: pageNum * limitNum < total,
-        hasPrev: pageNum > 1,
+        pages: Math.ceil(total / limit),
+        hasNext: page * limit < total,
+        hasPrev: page > 1,
       },
     });
   });
 
   const getById = catchAsync(async (req, res) => {
-    const { id } = req.params;
-
-    const userRole = await UserRole.findOne({ userId: id, roleCode }).lean();
-
-    if (!userRole) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
-
-    const user = await User.findById(id)
-      .select('firstName lastName email phone profileImage emailVerified dateOfBirth status createdAt')
-      .lean();
-
-    if (!user) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
+    const user = await findManagedUser(req);
 
     return response.success(res, {
       [itemKey]: {
         _id: user._id,
-        fullName: `${user.firstName} ${user.lastName}`.trim(),
+        fullName: user.fullName,
         email: user.email,
         phoneNumber: user.phone || '',
         profileImage: user.profileImage || null,
@@ -183,12 +170,8 @@ const makeManagedUserController = (
       throw ApiError.conflict('A user with this email already exists');
     }
 
+    await assertPasswordAllowed(password);
     const { firstName, lastName } = splitFullName(fullName);
-
-    let profileImage = null;
-    if (req.file) {
-      profileImage = await saveImage(req.file, 'profiles');
-    }
 
     const user = await User.create({
       firstName,
@@ -197,7 +180,6 @@ const makeManagedUserController = (
       passwordHash: await hashPassword(password),
       phone: phoneNumber || undefined,
       emailVerified: true,
-      profileImage,
     });
 
     await UserRole.assignRole(user._id, roleCode, {
@@ -205,12 +187,18 @@ const makeManagedUserController = (
       approvedBy: req.user!._id,
     });
 
+    // Saved last: an earlier failure would otherwise leave an orphan file on disk.
+    if (req.file) {
+      user.profileImage = await saveImage(req.file);
+      await user.save();
+    }
+
     return response.created(
       res,
       {
         [itemKey]: {
           _id: user._id,
-          fullName: `${user.firstName} ${user.lastName}`.trim(),
+          fullName: user.fullName,
           email: user.email,
         },
       },
@@ -219,18 +207,7 @@ const makeManagedUserController = (
   });
 
   const update = catchAsync(async (req, res) => {
-    const { id } = req.params;
-
-    const userRole = await UserRole.findOne({ userId: id, roleCode });
-
-    if (!userRole) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
-
-    const user = await User.findById(id);
-    if (!user) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
+    const user = await findManagedUser(req);
 
     const { fullName, phoneNumber, dateOfBirth } = req.body;
 
@@ -243,18 +220,7 @@ const makeManagedUserController = (
   });
 
   const toggleStatus = catchAsync(async (req, res) => {
-    const { id } = req.params;
-
-    const userRole = await UserRole.findOne({ userId: id, roleCode });
-
-    if (!userRole) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
-
-    const user = await User.findById(id);
-    if (!user) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
+    const user = await findManagedUser(req);
 
     const nextStatus =
       user.status === USER_STATUS.ACTIVE ? USER_STATUS.SUSPENDED : USER_STATUS.ACTIVE;
@@ -277,18 +243,13 @@ const makeManagedUserController = (
   });
 
   const uploadProfileImage = catchAsync(async (req, res) => {
-    const { id } = req.params;
-
     if (!req.file) {
       throw ApiError.badRequest('No file uploaded.', 'NO_FILE');
     }
 
-    const user = await User.findById(id);
-    if (!user) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
+    const user = await findManagedUser(req);
 
-    user.profileImage = await updateImage(req.file, user.profileImage, 'profiles');
+    user.profileImage = await updateImage(req.file, user.profileImage);
     await user.save();
     await syncSessionUser(String(user._id), user);
 
@@ -296,15 +257,10 @@ const makeManagedUserController = (
   });
 
   const deleteProfileImage = catchAsync(async (req, res) => {
-    const { id } = req.params;
-
-    const user = await User.findById(id);
-    if (!user) {
-      throw ApiError.notFound(NOT_FOUND_MESSAGE);
-    }
+    const user = await findManagedUser(req);
 
     if (!user.profileImage) {
-      return response.error(res, 'No profile image to delete.', 400);
+      throw ApiError.badRequest('No profile image to delete.', 'NO_PROFILE_IMAGE');
     }
 
     await deleteImage(user.profileImage);
@@ -327,3 +283,4 @@ const makeManagedUserController = (
 };
 
 export { makeManagedUserController };
+export type { ManagedUserLabels };

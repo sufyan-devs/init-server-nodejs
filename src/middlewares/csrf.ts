@@ -4,7 +4,8 @@ import type { Request, Response, NextFunction } from 'express';
 import { envConfig } from '@config/env';
 import ApiError from '@utils/apiError';
 import AuthErrors from '@constants/authErrors';
-import { getRoleCookieName } from '@utils/cookieHelper';
+import { getRoleCookieName, getCookieOptions, readCookie } from '@utils/cookieHelper';
+import { sidFromToken } from '@auth/services/session.service';
 
 const randomBytesAsync = promisify(randomBytes);
 
@@ -37,16 +38,13 @@ const issueCsrfToken = async (
   const token = `${random}${TOKEN_SEPARATOR}${sign(sid, random)}`;
 
   res.cookie(csrfCookieName(getRoleCookieName(portalRole)), token, {
+    ...getCookieOptions(),
     httpOnly: false,
     signed: false,
-    secure: envConfig.SESSION.COOKIE.SECURE,
-    sameSite: envConfig.SESSION.COOKIE.SAME_SITE,
     // The session cookie slides up to the absolute cap. If this one expired first the
     // user would keep a live session that fails every write with 403, unrecoverably:
     // a new CSRF cookie is only issued at login, and they are not logged out.
     maxAge: envConfig.SESSION.ABSOLUTE_MAX_MS,
-    path: '/',
-    ...(envConfig.SESSION.COOKIE.DOMAIN ? { domain: envConfig.SESSION.COOKIE.DOMAIN } : {}),
   });
 
   return token;
@@ -64,21 +62,19 @@ const PORTAL_SEGMENTS = new Set(['admin', 'vendor', 'associate', 'customer']);
 // `authenticate`, so `req.sessionId` is unset and jar order would decide which portal wins.
 const currentSession = (req: Request): { sid: string; cookieName: string } | undefined => {
   const base = envConfig.SESSION.COOKIE.NAME;
-  const jar = { ...(req.cookies as Record<string, unknown>), ...(req.signedCookies as Record<string, unknown>) };
-  const read = (name: string): string | undefined =>
-    typeof jar[name] === 'string' ? (jar[name] as string) : undefined;
 
   const segment = req.path.split('/')[1];
   if (segment && PORTAL_SEGMENTS.has(segment)) {
     const cookieName = `${base}_${segment}`;
-    const value = read(cookieName);
-    return value ? { sid: value.split(TOKEN_SEPARATOR)[0], cookieName } : undefined;
+    const value = readCookie(req, cookieName);
+    return typeof value === 'string' ? { sid: sidFromToken(value), cookieName } : undefined;
   }
 
   if (!req.sessionId) return undefined;
+  const jar = { ...(req.cookies as Record<string, unknown>), ...(req.signedCookies as Record<string, unknown>) };
   for (const [cookieName, value] of Object.entries(jar)) {
     if (!cookieName.startsWith(base) || typeof value !== 'string') continue;
-    if (value.split(TOKEN_SEPARATOR)[0] === req.sessionId) return { sid: req.sessionId, cookieName };
+    if (sidFromToken(value) === req.sessionId) return { sid: req.sessionId, cookieName };
   }
   return undefined;
 };

@@ -5,6 +5,7 @@ import AuthErrors from '@constants/authErrors';
 import { logger } from '@utils/logger';
 import { incrementWithTTL, rateLimitKey } from '@utils/redisKeys';
 import type { RateLimitScope } from '@utils/redisKeys';
+import { errorMessage } from '@utils/format';
 
 const IP_SCOPE: RateLimitScope = 'ip';
 const ACCOUNT_SCOPE: RateLimitScope = 'acct';
@@ -41,7 +42,7 @@ interface CounterReading {
 
 const clientIp = (req: Request): string => (req.ip ?? req.socket.remoteAddress ?? '').trim();
 
-const defaultAccountKey = (req: Request): string | undefined => {
+const accountFromBody = (req: Request): string | undefined => {
   const body = req.body as Record<string, unknown> | undefined;
   const value = body?.[ACCOUNT_FIELD];
   return typeof value === 'string' ? value : undefined;
@@ -55,7 +56,7 @@ const resolveIdentifiers = (req: Request, options: RateLimitOptions): ScopedIden
 
   if (options.by === 'ip') return identifiers;
 
-  const account = defaultAccountKey(req)?.trim() ?? '';
+  const account = accountFromBody(req)?.trim() ?? '';
   if (account !== '') identifiers.push({ scope: ACCOUNT_SCOPE, value: account });
 
   return identifiers;
@@ -69,9 +70,9 @@ const hitCounters = async (
   const keys = identifiers.map(({ scope, value }) => rateLimitKey(bucket, scope, value));
   const hits = await incrementWithTTL(keys, rule.WINDOW_SECONDS);
 
-  return keys.map((_key, index) => ({
-    scope: identifiers[index].scope,
-    value: identifiers[index].value,
+  return identifiers.map(({ scope, value }, index) => ({
+    scope,
+    value,
     count: hits[index].count,
     resetSeconds: hits[index].ttlSeconds > 0 ? hits[index].ttlSeconds : rule.WINDOW_SECONDS,
   }));
@@ -84,10 +85,6 @@ const setQuotaHeaders = (res: Response, limit: number, remaining: number, resetS
   res.setHeader('RateLimit-Limit', limit);
   res.setHeader('RateLimit-Remaining', remaining);
   res.setHeader('RateLimit-Reset', resetSeconds);
-};
-
-const setRetryAfter = (res: Response, resetSeconds: number): void => {
-  res.setHeader('Retry-After', resetSeconds);
 };
 
 const rateLimit = (options: RateLimitOptions): RateLimitMiddleware => {
@@ -106,13 +103,14 @@ const rateLimit = (options: RateLimitOptions): RateLimitMiddleware => {
       // Fails open on purpose: a Redis outage must not become a full product outage.
       logger.error('Rate limit check failed — allowing request through (fail open)', {
         bucket,
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage(error),
       });
       next();
       return;
     }
 
     if (readings.length === 0) {
+      logger.warn('Rate limit skipped — no client identifier', { bucket, path: req.originalUrl });
       next();
       return;
     }
@@ -126,7 +124,7 @@ const rateLimit = (options: RateLimitOptions): RateLimitMiddleware => {
       return;
     }
 
-    setRetryAfter(res, binding.resetSeconds);
+    res.setHeader('Retry-After', binding.resetSeconds);
 
     logger.warn('Rate limit exceeded', {
       bucket,
@@ -147,4 +145,3 @@ const globalRateLimit = rateLimit({
 });
 
 export { rateLimit, globalRateLimit };
-export type { RateLimitOptions, RateLimitMiddleware, LimitBy };
