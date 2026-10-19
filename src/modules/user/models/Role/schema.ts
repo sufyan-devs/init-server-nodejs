@@ -53,10 +53,6 @@ roleSchema.statics.findByCode = function (code: string) {
   return this.findOne({ code, isActive: true });
 };
 
-roleSchema.statics.getSignupRoles = function () {
-  return this.find({ canSelfRegister: true, isActive: true });
-};
-
 const Role = mongoose.model<IRole, IRoleModel>('Role', roleSchema);
 
 export default Role;

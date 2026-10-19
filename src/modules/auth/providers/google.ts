@@ -33,18 +33,22 @@ const GOOGLE_ERRORS = {
   INVALID_TOKEN: {
     code: 'AUTH_GOOGLE_INVALID_TOKEN',
     message: 'Google sign-in could not be verified. Please try again.',
+    status: 401,
   },
   EMAIL_NOT_VERIFIED: {
     code: 'AUTH_GOOGLE_EMAIL_NOT_VERIFIED',
     message: 'Your Google account email is not verified. Verify it with Google and try again.',
+    status: 401,
   },
   NOT_CONFIGURED: {
     code: 'AUTH_GOOGLE_NOT_CONFIGURED',
     message: 'Google sign-in is not available.',
+    status: 503,
   },
   UNAVAILABLE: {
     code: 'AUTH_GOOGLE_UNAVAILABLE',
     message: 'Google sign-in is temporarily unavailable. Please try again shortly.',
+    status: 503,
   },
 } as const satisfies Record<string, AuthError>;
 
@@ -113,7 +117,7 @@ const fetchCerts = async (): Promise<CertCache> => {
     logger.error('Failed to fetch Google signing keys', {
       reason: errorMessage(error),
     });
-    throw ApiError.fromAuthError(503, GOOGLE_ERRORS.UNAVAILABLE);
+    throw ApiError.fromAuthError(GOOGLE_ERRORS.UNAVAILABLE);
   }
 
   const keys = new Map<string, string>();
@@ -124,7 +128,7 @@ const fetchCerts = async (): Promise<CertCache> => {
 
   if (keys.size === 0) {
     logger.error('Google returned no usable signing keys');
-    throw ApiError.fromAuthError(503, GOOGLE_ERRORS.UNAVAILABLE);
+    throw ApiError.fromAuthError(GOOGLE_ERRORS.UNAVAILABLE);
   }
 
   const now = Date.now();
@@ -168,7 +172,7 @@ const getSigningKey = async (kid: string): Promise<string> => {
   if (rotatedKey) return rotatedKey;
 
   logger.warn('Google ID token signed with an unknown key', { kid });
-  throw ApiError.fromAuthError(401, GOOGLE_ERRORS.INVALID_TOKEN);
+  throw ApiError.fromAuthError(GOOGLE_ERRORS.INVALID_TOKEN);
 };
 
 const isEmailVerified = (claim: boolean | string | undefined): boolean =>
@@ -191,15 +195,15 @@ const isEnabled = (): boolean =>
 
 const verify = async (credential: Record<string, unknown>): Promise<NormalizedIdentity> => {
   const clientIds = envConfig.AUTH.GOOGLE.CLIENT_IDS;
-  if (clientIds.length === 0) throw ApiError.fromAuthError(503, GOOGLE_ERRORS.NOT_CONFIGURED);
+  if (clientIds.length === 0) throw ApiError.fromAuthError(GOOGLE_ERRORS.NOT_CONFIGURED);
 
   const token = readToken(credential);
-  if (!token) throw ApiError.fromAuthError(401, GOOGLE_ERRORS.INVALID_TOKEN);
+  if (!token) throw ApiError.fromAuthError(GOOGLE_ERRORS.INVALID_TOKEN);
 
   const header = jwt.decode(token, { complete: true })?.header;
   const kid = readString(header?.kid);
   if (!kid || header?.alg !== GOOGLE_ALGORITHM) {
-    throw ApiError.fromAuthError(401, GOOGLE_ERRORS.INVALID_TOKEN);
+    throw ApiError.fromAuthError(GOOGLE_ERRORS.INVALID_TOKEN);
   }
 
   const publicKey = await getSigningKey(kid);
@@ -213,18 +217,18 @@ const verify = async (credential: Record<string, unknown>): Promise<NormalizedId
     }) as GoogleIdTokenPayload;
   } catch (error) {
     logger.warn('Google ID token rejected', { kid, reason: errorMessage(error) });
-    throw ApiError.fromAuthError(401, GOOGLE_ERRORS.INVALID_TOKEN);
+    throw ApiError.fromAuthError(GOOGLE_ERRORS.INVALID_TOKEN);
   }
 
   const providerUserId = readString(payload.sub);
-  if (!providerUserId) throw ApiError.fromAuthError(401, GOOGLE_ERRORS.INVALID_TOKEN);
+  if (!providerUserId) throw ApiError.fromAuthError(GOOGLE_ERRORS.INVALID_TOKEN);
 
   if (!isEmailVerified(payload.email_verified)) {
-    throw ApiError.fromAuthError(401, GOOGLE_ERRORS.EMAIL_NOT_VERIFIED);
+    throw ApiError.fromAuthError(GOOGLE_ERRORS.EMAIL_NOT_VERIFIED);
   }
 
   const email = readString(payload.email)?.toLowerCase();
-  if (!email) throw ApiError.fromAuthError(401, GOOGLE_ERRORS.INVALID_TOKEN);
+  if (!email) throw ApiError.fromAuthError(GOOGLE_ERRORS.INVALID_TOKEN);
 
   const { firstName, lastName } = splitName(payload);
 

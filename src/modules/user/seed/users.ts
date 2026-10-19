@@ -1,6 +1,8 @@
-import mongoose from 'mongoose';
+import { connectDatabase, disconnectDatabase } from '@config/database';
 import { hashPassword, assertPasswordAllowed } from '@auth/index';
 import { envConfig } from '@config/env';
+import { logger } from '@utils/logger';
+import { errorMessage } from '@utils/format';
 import User from '@user/models/User';
 import { ROLE_CODE } from '@user/models/Role';
 import type { RoleCode } from '@user/models/Role';
@@ -39,7 +41,7 @@ const seedUser = async (entry: SeedUser, password: string): Promise<void> => {
 
   let user = await User.findByEmail(email);
   if (user) {
-    console.warn(`exists  ${email}`);
+    logger.info(`exists  ${email}`);
   } else {
     user = await User.create({
       email,
@@ -49,14 +51,14 @@ const seedUser = async (entry: SeedUser, password: string): Promise<void> => {
       phone,
       emailVerified: true,
     });
-    console.warn(`created ${email}`);
+    logger.info(`created ${email}`);
   }
 
   const existing = await UserRole.findOne({ userId: user._id, roleCode });
   if (existing) return;
 
   await UserRole.assignRole(user._id, roleCode, { autoApprove: true });
-  console.warn(`  role  ${roleCode}`);
+  logger.info(`  role  ${roleCode}`);
 };
 
 const seedUsers = async (): Promise<void> => {
@@ -65,21 +67,22 @@ const seedUsers = async (): Promise<void> => {
     // Seeds bypass the registration controller, so the policy is not otherwise applied.
     await assertPasswordAllowed(password);
 
-    await mongoose.connect(envConfig.MONGO_URI);
+    await connectDatabase();
 
     const entries = envConfig.IN_PROD ? ADMINS : [...ADMINS, ...TEST_USERS];
     for (const entry of entries) await seedUser(entry, password);
 
-    console.warn(`
-Seeded ${entries.length} user(s).`);
+    logger.info(`Seeded ${entries.length} user(s).`);
     if (!envConfig.IN_PROD) {
-      console.warn(`Password for all of them: ${password}`);
-      console.warn('Override with SEED_ADMIN_PASSWORD. Change it after first login.');
+      logger.info(`Password for all of them: ${password}`);
+      logger.info('Override with SEED_ADMIN_PASSWORD. Change it after first login.');
     }
-    process.exit(0);
-  } catch (error) {
-    console.error('Seed failed:', error);
-    process.exit(1);
+  } catch (error: unknown) {
+    logger.error(`Seed failed: ${errorMessage(error)}`);
+    process.exitCode = 1;
+  } finally {
+    await disconnectDatabase();
+    process.exit();
   }
 };
 

@@ -1,11 +1,14 @@
 import type { Request } from 'express';
+import type { PipelineStage } from 'mongoose';
 import { assertPasswordAllowed, hashPassword, revokeUserSessions, syncSessionUser } from '@auth/index';
+import { record, AUDIT_ACTION, AUDIT_OUTCOME, type AuditAction } from '@audit/index';
 import User, { USER_STATUS } from '@user/models/User';
 import UserRole, { USER_ROLE_STATUS } from '@user/models/UserRole';
 import type { RoleCode } from '@user/models/Role';
 import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
 import response from '@utils/response';
+import { escapeRegex } from '@utils/format';
 import { saveImage, updateImage, deleteImage } from '@user/helpers/image';
 import { applyProfileFields, splitFullName } from '@user/helpers/profileFields';
 import type { ManagedUserListQuery } from '@user/validators';
@@ -26,11 +29,24 @@ const makeManagedUserController = (
   const findManagedUser = async (req: Request) => {
     const { id } = req.params;
     const userRole = await UserRole.exists({ userId: id, roleCode });
-    if (!userRole) throw ApiError.notFound(NOT_FOUND_MESSAGE);
+    if (!userRole) throw ApiError.notFound(NOT_FOUND_MESSAGE, 'USER_NOT_FOUND');
 
     const user = await User.findOne({ _id: id, status: { $ne: USER_STATUS.DELETED } });
-    if (!user) throw ApiError.notFound(NOT_FOUND_MESSAGE);
+    if (!user) throw ApiError.notFound(NOT_FOUND_MESSAGE, 'USER_NOT_FOUND');
     return user;
+  };
+
+  const recordUserAction = (req: Request, action: AuditAction, userId: string, meta?: Record<string, unknown>) => {
+    void record({
+      actorId: String(req.user!._id),
+      action,
+      outcome: AUDIT_OUTCOME.SUCCESS,
+      resource: 'user',
+      resourceId: userId,
+      meta: { roleCode, ...meta },
+      ip: req.ip ?? '',
+      userAgent: req.get('User-Agent'),
+    });
   };
 
   const list = catchAsync(async (req, res) => {
@@ -44,7 +60,7 @@ const makeManagedUserController = (
     }
     if (isVerified !== undefined) userMatch.emailVerified = isVerified;
 
-    const lookupSubPipeline: Record<string, unknown>[] = [];
+    const lookupSubPipeline: PipelineStage.Lookup['$lookup']['pipeline'] = [];
     if (Object.keys(userMatch).length) lookupSubPipeline.push({ $match: userMatch });
     lookupSubPipeline.push({
       $project: {
@@ -59,7 +75,7 @@ const makeManagedUserController = (
       },
     });
 
-    const pipeline: Record<string, unknown>[] = [
+    const pipeline: PipelineStage[] = [
       {
         $match: {
           roleCode,
@@ -91,7 +107,7 @@ const makeManagedUserController = (
     ];
 
     if (search) {
-      const searchRegex = { $regex: search, $options: 'i' };
+      const searchRegex = { $regex: escapeRegex(search), $options: 'i' };
       pipeline.push({
         $match: {
           $or: [{ fullName: searchRegex }, { email: searchRegex }, { phoneNumber: searchRegex }],
@@ -99,7 +115,7 @@ const makeManagedUserController = (
       });
     }
 
-    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countPipeline: PipelineStage[] = [...pipeline, { $count: 'total' }];
 
     pipeline.push(
       {
@@ -124,8 +140,8 @@ const makeManagedUserController = (
     );
 
     const [items, countResult] = await Promise.all([
-      UserRole.aggregate(pipeline as any[]),
-      UserRole.aggregate(countPipeline as any[]),
+      UserRole.aggregate(pipeline),
+      UserRole.aggregate<{ total: number }>(countPipeline),
     ]);
 
     const total = countResult[0]?.total ?? 0;
@@ -167,7 +183,7 @@ const makeManagedUserController = (
 
     const existing = await User.findByEmail(email);
     if (existing) {
-      throw ApiError.conflict('A user with this email already exists');
+      throw ApiError.conflict('A user with this email already exists', 'EMAIL_EXISTS');
     }
 
     await assertPasswordAllowed(password);
@@ -193,6 +209,8 @@ const makeManagedUserController = (
       await user.save();
     }
 
+    recordUserAction(req, AUDIT_ACTION.USER_CREATED, String(user._id));
+
     return response.created(
       res,
       {
@@ -215,6 +233,7 @@ const makeManagedUserController = (
 
     await user.save();
     await syncSessionUser(String(user._id), user);
+    recordUserAction(req, AUDIT_ACTION.USER_UPDATED, String(user._id), { fields: Object.keys(req.body) });
 
     return response.success(res, null, 200, `${title} updated successfully`);
   });
@@ -233,6 +252,7 @@ const makeManagedUserController = (
 
     user.status = nextStatus;
     await user.save();
+    recordUserAction(req, AUDIT_ACTION.USER_STATUS_CHANGED, String(user._id), { status: nextStatus });
 
     return response.success(
       res,
@@ -252,6 +272,7 @@ const makeManagedUserController = (
     user.profileImage = await updateImage(req.file, user.profileImage);
     await user.save();
     await syncSessionUser(String(user._id), user);
+    recordUserAction(req, AUDIT_ACTION.USER_IMAGE_CHANGED, String(user._id), { change: 'uploaded' });
 
     return response.success(res, { profileImage: user.profileImage }, 200, 'Profile image uploaded.');
   });
@@ -267,6 +288,7 @@ const makeManagedUserController = (
     user.profileImage = null;
     await user.save();
     await syncSessionUser(String(user._id), user);
+    recordUserAction(req, AUDIT_ACTION.USER_IMAGE_CHANGED, String(user._id), { change: 'deleted' });
 
     return response.success(res, null, 200, 'Profile image deleted.');
   });

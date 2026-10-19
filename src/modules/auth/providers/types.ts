@@ -1,5 +1,4 @@
 export const AUTH_PROVIDER = {
-  PASSWORD: 'password',
   GOOGLE: 'google',
 } as const;
 

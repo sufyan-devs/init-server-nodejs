@@ -1,9 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import { envConfig, type EnvConfig } from '@config/env';
 import ApiError from '@utils/apiError';
-import AuthErrors from '@constants/authErrors';
+import AUTH_ERRORS from '@constants/authErrors';
 import { logger } from '@utils/logger';
-import { incrementWithTTL, rateLimitKey } from '@utils/redisKeys';
+import { identifierHash, incrementWithTTL, rateLimitKey } from '@utils/redisKeys';
 import type { RateLimitScope } from '@utils/redisKeys';
 import { errorMessage } from '@utils/format';
 
@@ -11,8 +11,6 @@ const IP_SCOPE: RateLimitScope = 'ip';
 const ACCOUNT_SCOPE: RateLimitScope = 'acct';
 
 const ACCOUNT_FIELD = 'email';
-
-const HTTP_TOO_MANY_REQUESTS = 429;
 
 type RateLimitRule = EnvConfig['RATE_LIMIT']['GLOBAL'];
 
@@ -129,12 +127,12 @@ const rateLimit = (options: RateLimitOptions): RateLimitMiddleware => {
     logger.warn('Rate limit exceeded', {
       bucket,
       scope: binding.scope,
-      identifier: binding.value,
+      identifier: binding.scope === ACCOUNT_SCOPE ? identifierHash(binding.value) : binding.value,
       retryAfterSeconds: binding.resetSeconds,
       path: req.originalUrl,
     });
 
-    next(ApiError.fromAuthError(HTTP_TOO_MANY_REQUESTS, AuthErrors.RATE_LIMIT_EXCEEDED));
+    next(ApiError.fromAuthError(AUTH_ERRORS.RATE_LIMIT_EXCEEDED));
   };
 };
 

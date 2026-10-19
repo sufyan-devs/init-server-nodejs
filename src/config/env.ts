@@ -3,6 +3,7 @@ import 'dotenv/config';
 const IN_PROD: boolean = process.env.NODE_ENV === "production";
 
 const SESSION_LIFETIME_DEFAULT_MS = 604800000;
+const SESSION_ABSOLUTE_MAX_DEFAULT_MS = 2592000000;
 
 interface SessionCookieConfig {
   NAME: string;
@@ -67,13 +68,6 @@ interface PasswordResetConfig {
   SESSION_EXPIRY_MINUTES: number;
 }
 
-interface CouponRedeemConfig {
-  OTP_EXPIRY_MINUTES: number;
-  VERIFY_MAX_ATTEMPTS: number;
-  SEND_MAX_REQUESTS: number;
-  SEND_WINDOW_MINUTES: number;
-}
-
 interface RedisConfig {
   URL: string | undefined;
   HOST: string;
@@ -118,17 +112,15 @@ export interface EnvConfig {
   APP_LOGO_URL: string | undefined;
   NODE_ENV: string;
   IN_PROD: boolean;
-  PORT: string | number;
+  PORT: number;
   TRUSTED_PROXY_COUNT: number;
   MONGO_URI: string;
-  JWT_SECRET: string;
   SEED_ADMIN_PASSWORD: string | undefined;
   ALLOWED_ORIGINS: string[];
   SESSION: SessionConfig;
   EMAIL: EmailConfig;
   OTP: OTPConfig;
   PASSWORD_RESET: PasswordResetConfig;
-  COUPON_REDEEM: CouponRedeemConfig;
   REDIS: RedisConfig;
   RATE_LIMIT: RateLimitConfig;
   LOCKOUT: LockoutConfig;
@@ -150,7 +142,7 @@ const requireSecret = (name: string, value: string | undefined): string => {
  * where zero is meaningless. Pass 0 only where zero is a real setting.
  * A bad value throws at boot rather than silently becoming the default.
  */
-const readInt = (name: string, fallback: number, min = 1): number => {
+export const readInt = (name: string, fallback: number, min = 1): number => {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === "") return fallback;
 
@@ -159,6 +151,12 @@ const readInt = (name: string, fallback: number, min = 1): number => {
     throw new Error(`[config] ${name} must be an integer >= ${min}, got "${raw}"`);
   }
   return parsed;
+};
+
+const requireInProd = (name: string, value: string | undefined, devFallback: string): string => {
+  if (value && value.trim() !== "") return value;
+  if (IN_PROD) throw new Error(`[config] ${name} is required in production.`);
+  return devFallback;
 };
 
 const splitList = (value: string | undefined): string[] =>
@@ -175,32 +173,26 @@ export const envConfig: EnvConfig = {
   APP_LOGO_URL: process.env.APP_LOGO_URL || undefined,
   NODE_ENV: process.env.NODE_ENV || "development",
   IN_PROD,
-  PORT: process.env.PORT || 8000,
+  PORT: readInt("PORT", 8000),
   // The rate limiter trusts req.ip, which is only correct if this matches the
   // number of proxies actually in front of the app.
   TRUSTED_PROXY_COUNT: readInt("TRUSTED_PROXY_COUNT", 1, 0),
-  MONGO_URI: process.env.MONGO_URI || "mongodb://localhost:27017/app",
-  JWT_SECRET: requireSecret("JWT_SECRET", process.env.JWT_SECRET),
+  MONGO_URI: requireInProd("MONGO_URI", process.env.MONGO_URI, "mongodb://localhost:27017/app"),
   // Optional here, not requireSecret: the server must boot without it. The seed
   // script refuses to run in production when it is missing.
   SEED_ADMIN_PASSWORD: process.env.SEED_ADMIN_PASSWORD,
 
-  ALLOWED_ORIGINS: splitList(
-    process.env.ALLOWED_ORIGINS || process.env.CORS_ORIGIN,
-  ),
+  ALLOWED_ORIGINS: splitList(process.env.ALLOWED_ORIGINS),
 
   SESSION: {
     EXPIRY_MS: sessionExpiryMs,
     // Ceiling regardless of activity: a sliding TTL alone lets a stolen cookie
     // stay alive forever as long as it keeps being used.
-    ABSOLUTE_MAX_MS: readInt("SESSION_ABSOLUTE_MAX_MS", 2592000000),
+    ABSOLUTE_MAX_MS: readInt("SESSION_ABSOLUTE_MAX_MS", SESSION_ABSOLUTE_MAX_DEFAULT_MS),
     MAX_PER_USER: readInt("SESSION_MAX_PER_USER", 10),
     COOKIE: {
       NAME: process.env.COOKIE_NAME || "session_token",
-      SECRET: requireSecret(
-        "COOKIE_SECRET",
-        process.env.COOKIE_SECRET || process.env.JWT_SECRET,
-      ),
+      SECRET: requireSecret("COOKIE_SECRET", process.env.COOKIE_SECRET),
       DOMAIN: process.env.COOKIE_DOMAIN || undefined,
       SECURE: IN_PROD,
       SAME_SITE: "lax" as const,
@@ -235,13 +227,6 @@ export const envConfig: EnvConfig = {
 
   PASSWORD_RESET: {
     SESSION_EXPIRY_MINUTES: readInt("RESET_TOKEN_EXPIRY_MINUTES", 5),
-  },
-
-  COUPON_REDEEM: {
-    OTP_EXPIRY_MINUTES: readInt("COUPON_REDEEM_OTP_EXPIRY_MINUTES", 30),
-    VERIFY_MAX_ATTEMPTS: readInt("COUPON_REDEEM_VERIFY_MAX_ATTEMPTS", 3),
-    SEND_MAX_REQUESTS: readInt("COUPON_REDEEM_SEND_MAX_REQUESTS", 5),
-    SEND_WINDOW_MINUTES: readInt("COUPON_REDEEM_SEND_WINDOW_MINUTES", 30),
   },
 
   REDIS: {
@@ -317,9 +302,7 @@ export const envConfig: EnvConfig = {
   AUTH: {
     GOOGLE: {
       ENABLED: process.env.GOOGLE_AUTH_ENABLED !== "false",
-      CLIENT_IDS: splitList(
-        process.env.GOOGLE_CLIENT_IDS || process.env.GOOGLE_CLIENT_ID,
-      ),
+      CLIENT_IDS: splitList(process.env.GOOGLE_CLIENT_IDS),
     },
   },
 };

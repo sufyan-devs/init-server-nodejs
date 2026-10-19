@@ -1,5 +1,7 @@
-import mongoose from 'mongoose';
+import { connectDatabase, disconnectDatabase } from '@config/database';
 import { envConfig } from '@config/env';
+import { logger } from '@utils/logger';
+import { errorMessage } from '@utils/format';
 import Role, { ROLE_CODE, ROLE_TYPE } from '@user/models/Role';
 
 const IN_PROD: boolean = envConfig.IN_PROD;
@@ -59,26 +61,27 @@ const ROLES = [
 
 const seedRoles = async (): Promise<void> => {
   try {
-    await mongoose.connect(envConfig.MONGO_URI);
-    console.warn('MongoDB connected');
+    await connectDatabase();
 
     for (const roleData of ROLES) {
       const existing = await Role.findOne({ code: roleData.code });
 
       if (existing) {
         await Role.updateOne({ code: roleData.code }, { $set: roleData });
-        console.warn(`Role updated: ${roleData.code}`);
+        logger.info(`Role updated: ${roleData.code}`);
       } else {
         await Role.create(roleData);
-        console.warn(`Role created: ${roleData.code}`);
+        logger.info(`Role created: ${roleData.code}`);
       }
     }
 
-    console.warn(`\nAll ${ROLES.length} roles seeded`);
-    process.exit(0);
-  } catch (error) {
-    console.error('Seed error:', error);
-    process.exit(1);
+    logger.info(`All ${ROLES.length} roles seeded`);
+  } catch (error: unknown) {
+    logger.error(`Seed failed: ${errorMessage(error)}`);
+    process.exitCode = 1;
+  } finally {
+    await disconnectDatabase();
+    process.exit();
   }
 };
 

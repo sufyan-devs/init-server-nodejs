@@ -1,23 +1,23 @@
 import type { Request, Response } from 'express';
 import UserRole from '@user/models/UserRole';
-import { AUTH_PROVIDER, getProvider, getEnabledProviderIds } from '@auth/providers';
+import { getProvider, getEnabledProviderIds } from '@auth/providers';
 import { resolveUser } from '@auth/services/identity.service';
 import sessionService, { toSessionUser } from '@auth/services/session.service';
+import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 import ApiError from '@utils/apiError';
-import AuthErrors from '@constants/authErrors';
+import AUTH_ERRORS from '@constants/authErrors';
 import catchAsync from '@utils/catchAsync';
 import response from '@utils/response';
 import { setSessionCookie } from '@utils/cookieHelper';
-import { issueCsrfToken } from '@middlewares/csrf';
-import { getClientIp } from '@utils/clientIp';
+import { issueCsrfToken } from '@auth/middlewares/csrf';
 
-const oauthLogin = (portalRole: string) =>
+const oauthLogin = (roleCode: string) =>
   catchAsync(async (req: Request, res: Response) => {
     const providerId = String(req.params.provider);
 
-    // Password login is /login's own path; routed here it would skip the email-verification gate.
-    const provider =
-      providerId === AUTH_PROVIDER.PASSWORD ? undefined : getProvider(providerId);
+    // Password login is not a registered provider: it is /login's own path, which
+    // carries the email-verification gate this route does not.
+    const provider = getProvider(providerId);
 
     if (!provider) {
       throw ApiError.notFound(
@@ -30,32 +30,44 @@ const oauthLogin = (portalRole: string) =>
 
     const identity = await provider.verify(body);
 
-    const { user, userId, isNewUser } = await resolveUser(identity, portalRole);
+    const { user, userId, isNewUser } = await resolveUser(identity, roleCode);
 
     const availableRoles = await UserRole.getUserRoleCodes(user._id);
     if (availableRoles.length === 0) {
-      throw ApiError.fromAuthError(403, AuthErrors.ACCOUNT_NOT_APPROVED);
+      throw ApiError.fromAuthError(AUTH_ERRORS.ACCOUNT_NOT_APPROVED);
     }
-    if (!availableRoles.includes(portalRole)) {
-      throw ApiError.fromAuthError(403, AuthErrors.PORTAL_ACCESS_DENIED);
+    if (!availableRoles.includes(roleCode)) {
+      throw ApiError.fromAuthError(AUTH_ERRORS.PORTAL_ACCESS_DENIED);
     }
+
+    const ipAddress = req.ip ?? '';
+    const userAgent = req.get('User-Agent');
 
     const session = await sessionService.createSession({
       userId,
       user: toSessionUser(user),
-      activeRole: portalRole,
+      activeRole: roleCode,
       availableRoles,
-      portal: portalRole,
-      ipAddress: getClientIp(req),
-      userAgent: req.get('User-Agent'),
+      portal: roleCode,
+      ipAddress,
+      userAgent,
       deviceInfo: typeof body.deviceInfo === 'string' ? body.deviceInfo : undefined,
     });
 
-    setSessionCookie(res, session.token, portalRole);
-    const csrfToken = await issueCsrfToken(res, session.sid, portalRole);
+    void record({
+      actorId: userId,
+      action: AUDIT_ACTION.LOGIN_SUCCESS,
+      outcome: AUDIT_OUTCOME.SUCCESS,
+      meta: { provider: identity.provider, activeRole: roleCode, portal: roleCode, isNewUser },
+      ip: ipAddress,
+      userAgent,
+    });
+
+    setSessionCookie(res, session.token, roleCode);
+    const csrfToken = await issueCsrfToken(res, session.sid, roleCode);
 
     return response.success(res, {
-      user: { ...user.toAuthJSON(), activeRole: portalRole },
+      user: { ...user.toAuthJSON(), activeRole: roleCode },
       isNewUser,
       csrfToken,
     });

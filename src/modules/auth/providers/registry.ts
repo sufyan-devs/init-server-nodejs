@@ -1,9 +1,7 @@
-import passwordProvider from './password';
 import googleProvider from './google';
 import type { AuthProviderId, IdentityProvider } from './types';
 
 const providers = new Map<AuthProviderId, IdentityProvider>([
-  [passwordProvider.id, passwordProvider],
   [googleProvider.id, googleProvider],
 ]);
 

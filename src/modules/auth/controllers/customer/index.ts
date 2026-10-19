@@ -1,4 +1,4 @@
-import { createPortalAuthController } from '../shared/portalAuth';
+import { createPortalAuthController } from '@auth/controllers/shared/portalAuth';
 import { ROLE_CODE } from '@user/models/Role';
 
 export const {
@@ -10,10 +10,9 @@ export const {
   switchRole,
   getAvailableRoles,
   requestRole,
-  getReferralCode,
   socialLogin,
 } = createPortalAuthController(ROLE_CODE.CUSTOMER);
 
-export { forgotPassword, verifyResetOTP, resetPassword } from '../shared/passwordReset';
-export { verifyEmailOTP, sendEmailOTP } from '../shared/emailVerification';
-export { listSessions, revokeSessionById } from '../shared/sessions';
+export { forgotPassword, verifyResetOtp, resetPassword } from '@auth/controllers/shared/passwordReset';
+export { verifyEmailOtp, sendEmailOtp } from '@auth/controllers/shared/emailVerification';
+export { listSessions, revokeSessionById } from '@auth/controllers/shared/sessions';

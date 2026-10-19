@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import * as authController from '../../controllers/associate';
-import { authenticate, authorizeRoles } from '@middlewares/authenticate';
+import * as authController from '@auth/controllers/associate';
+import { authenticate, authorizeRoles } from '@auth/middlewares/authenticate';
 import { ROLE_CODE } from '@user/models/Role';
-import { loginRateLimit, registerRateLimit, otpRateLimit, otpVerifyRateLimit } from '../shared/limits';
-import { verifyCsrf } from '@middlewares/csrf';
+import { loginRateLimit, registerRateLimit, otpRateLimit, otpVerifyRateLimit } from '@auth/routes/shared/limits';
+import { verifyCsrf } from '@auth/middlewares/csrf';
 import { validate } from '@middlewares/validate';
 import { loginSchema, registerSchema, forgotPasswordSchema, otpSchema, resetPasswordSchema, switchRoleSchema, requestRoleSchema, oauthSchema, sessionParamsSchema } from '@auth/validators';
 
@@ -19,11 +19,10 @@ router.get('/me', ...requireBA, authController.getMe);
 router.post('/switch-role', ...requireBA, verifyCsrf, validate({ body: switchRoleSchema }), authController.switchRole);
 router.get('/roles', ...requireBA, authController.getAvailableRoles);
 router.post('/request-role', authenticate(ROLE_CODE.BUSINESS_ASSOCIATE), verifyCsrf, validate({ body: requestRoleSchema }), authController.requestRole);
-router.get('/referral-code', ...requireBA, authController.getReferralCode);
-router.post('/verify-email', otpVerifyRateLimit, validate({ body: otpSchema }), authController.verifyEmailOTP);
-router.post('/send-otp', otpRateLimit, validate({ body: forgotPasswordSchema }), authController.sendEmailOTP);
+router.post('/verify-email', otpVerifyRateLimit, validate({ body: otpSchema }), authController.verifyEmailOtp);
+router.post('/send-otp', otpRateLimit, validate({ body: forgotPasswordSchema }), authController.sendEmailOtp);
 router.post('/forgot-password', otpRateLimit, validate({ body: forgotPasswordSchema }), authController.forgotPassword);
-router.post('/verify-otp', otpVerifyRateLimit, validate({ body: otpSchema }), authController.verifyResetOTP);
+router.post('/verify-otp', otpVerifyRateLimit, validate({ body: otpSchema }), authController.verifyResetOtp);
 router.post('/reset-password', otpVerifyRateLimit, validate({ body: resetPasswordSchema }), authController.resetPassword);
 
 router.post('/oauth/:provider', loginRateLimit, validate({ body: oauthSchema }), authController.socialLogin);

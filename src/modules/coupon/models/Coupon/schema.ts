@@ -1,7 +1,10 @@
 import mongoose, { Schema } from 'mongoose';
-import { priceField } from '@utils/mongoHelper';
+import { priceField } from '@coupon/helpers/mongo';
+import ApiError from '@utils/apiError';
 import type { ICoupon } from './types';
 import { COUPON_STATUS, DISCOUNT_TYPE, REFERRAL_TYPE } from './types';
+
+const INVALID_STATUS_CODE = 'INVALID_COUPON_STATUS';
 
 const couponSchema = new Schema<ICoupon>(
   {
@@ -130,7 +133,7 @@ couponSchema.index({ 'referral.userId': 1, status: 1 });
 
 couponSchema.methods.submit = async function (this: ICoupon): Promise<ICoupon> {
   if (this.status !== COUPON_STATUS.DRAFT) {
-    throw new Error(`Cannot submit coupon with status: ${this.status}`);
+    throw ApiError.badRequest(`Cannot submit coupon with status: ${this.status}`, INVALID_STATUS_CODE);
   }
   this.status = COUPON_STATUS.PENDING;
   return this.save();
@@ -138,7 +141,7 @@ couponSchema.methods.submit = async function (this: ICoupon): Promise<ICoupon> {
 
 couponSchema.methods.approve = async function (this: ICoupon): Promise<ICoupon> {
   if (this.status !== COUPON_STATUS.PENDING) {
-    throw new Error(`Cannot approve coupon with status: ${this.status}`);
+    throw ApiError.badRequest(`Cannot approve coupon with status: ${this.status}`, INVALID_STATUS_CODE);
   }
   this.status = COUPON_STATUS.APPROVED;
   return this.save();
@@ -146,7 +149,7 @@ couponSchema.methods.approve = async function (this: ICoupon): Promise<ICoupon> 
 
 couponSchema.methods.publish = async function (this: ICoupon): Promise<ICoupon> {
   if (this.status !== COUPON_STATUS.APPROVED) {
-    throw new Error(`Cannot publish coupon with status: ${this.status}`);
+    throw ApiError.badRequest(`Cannot publish coupon with status: ${this.status}`, INVALID_STATUS_CODE);
   }
   this.status = COUPON_STATUS.PUBLISHED;
   return this.save();
@@ -154,7 +157,7 @@ couponSchema.methods.publish = async function (this: ICoupon): Promise<ICoupon> 
 
 couponSchema.methods.reject = async function (this: ICoupon): Promise<ICoupon> {
   if (this.status !== COUPON_STATUS.PENDING) {
-    throw new Error(`Cannot reject coupon with status: ${this.status}`);
+    throw ApiError.badRequest(`Cannot reject coupon with status: ${this.status}`, INVALID_STATUS_CODE);
   }
   this.status = COUPON_STATUS.DRAFT;
   return this.save();
@@ -162,7 +165,7 @@ couponSchema.methods.reject = async function (this: ICoupon): Promise<ICoupon> {
 
 couponSchema.methods.deactivate = async function (this: ICoupon): Promise<ICoupon> {
   if (this.status !== COUPON_STATUS.PUBLISHED) {
-    throw new Error(`Cannot deactivate coupon with status: ${this.status}`);
+    throw ApiError.badRequest(`Cannot deactivate coupon with status: ${this.status}`, INVALID_STATUS_CODE);
   }
   this.status = COUPON_STATUS.INACTIVE;
   return this.save();

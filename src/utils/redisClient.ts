@@ -24,54 +24,53 @@ const withDatabase = (url: string, db: number): string => {
   return parsed.toString();
 };
 
+const MAX_RECONNECT_DELAY_MS = 10000;
+const KEEP_ALIVE_INITIAL_DELAY_MS = 30000;
+
 const redisUrl: string = withDatabase(
   envConfig.REDIS.URL || `redis://${envConfig.REDIS.HOST}:${envConfig.REDIS.PORT}`,
   envConfig.REDIS.DB,
 );
 
-const clientOptions: any = {
-  url: redisUrl,
-  socket: {
-    reconnectStrategy: (retries: number): number | Error => {
-      const max = envConfig.REDIS.MAX_RETRIES;
-      if (retries > max) {
-        logger.error(`Redis: Max reconnection attempts (${max}) exceeded`);
-        return new Error("Redis reconnection limit exceeded");
-      }
-      const delay = Math.min(
-        envConfig.REDIS.RETRY_DELAY * retries,
-        10000,
-      );
-      logger.warn(
-        `Redis: Reconnecting in ${delay}ms (attempt ${retries}/${max})`,
-      );
-      return delay;
-    },
-    connectTimeout: envConfig.REDIS.CONNECTION_TIMEOUT,
-    keepAlive: 30000,
-  },
+// The URL may carry a password, so logs name only where we connect.
+const { host, hostname } = new URL(redisUrl);
+const redisTarget = `${host} db ${envConfig.REDIS.DB}`;
+
+const reconnectStrategy = (retries: number): number | Error => {
+  const max = envConfig.REDIS.MAX_RETRIES;
+  if (retries > max) {
+    logger.error(`Redis: Max reconnection attempts (${max}) exceeded`);
+    return new Error("Redis reconnection limit exceeded");
+  }
+  const delay = Math.min(envConfig.REDIS.RETRY_DELAY * retries, MAX_RECONNECT_DELAY_MS);
+  logger.warn(`Redis: Reconnecting in ${delay}ms (attempt ${retries}/${max})`);
+  return delay;
 };
 
-if (envConfig.REDIS.PASSWORD) {
-  clientOptions.password = envConfig.REDIS.PASSWORD;
-} else if (envConfig.IN_PROD) {
+const socketOptions = {
+  reconnectStrategy,
+  connectTimeout: envConfig.REDIS.CONNECTION_TIMEOUT,
+  keepAlive: true,
+  keepAliveInitialDelay: KEEP_ALIVE_INITIAL_DELAY_MS,
+};
+
+if (!envConfig.REDIS.PASSWORD && envConfig.IN_PROD) {
   logger.warn("[SECURITY] Redis password not set!");
 }
 
-const isLocalhost: boolean =
-  redisUrl.includes("127.0.0.1") || redisUrl.includes("localhost");
-if (envConfig.IN_PROD && !isLocalhost) {
-  if (clientOptions.socket) {
-    clientOptions.socket.tls = true;
-  }
-  logger.info("[SECURITY] Redis TLS enabled for production");
-}
+const isLocalhost: boolean = hostname === "127.0.0.1" || hostname === "localhost";
+const useTls: boolean = envConfig.IN_PROD && !isLocalhost;
+if (useTls) logger.info("[SECURITY] Redis TLS enabled for production");
 
-const client: RedisClientType = createClient(clientOptions) as RedisClientType;
+const client: RedisClientType = createClient({
+  url: redisUrl,
+  password: envConfig.REDIS.PASSWORD,
+  socket: useTls ? { ...socketOptions, tls: true } : socketOptions,
+}) as RedisClientType;
 let isConnected: boolean = false;
 
-client.on("error", (err: Error) => {
-  logger.error("Redis connection error", { error: err.message });
+client.on("error", (error: unknown) => {
+  logger.error("Redis connection error", { error: errorMessage(error) });
   isConnected = false;
 });
 
@@ -84,15 +83,15 @@ client.on("ready", () => {
   logger.info("Redis ready");
 });
 
-async function initRedis(timeoutMs: number = 5000): Promise<void> {
+async function initRedis(): Promise<void> {
   if (isConnected) return;
   try {
-    logger.info(`Redis: Attempting connection to ${redisUrl}`);
+    logger.info(`Redis: Attempting connection to ${redisTarget}`);
     const connectPromise = client.connect();
     const timeoutPromise = new Promise<never>((_, reject) =>
       setTimeout(
         () => reject(new Error("Redis connection timeout")),
-        timeoutMs,
+        envConfig.REDIS.CONNECTION_TIMEOUT,
       ),
     );
     await Promise.race([connectPromise, timeoutPromise]);
@@ -100,17 +99,16 @@ async function initRedis(timeoutMs: number = 5000): Promise<void> {
     try {
       const info = await client.info();
       const v = info.match(/redis_version:([^\r\n]+)/)?.[1] || "unknown";
-      logger.info(`Redis initialized (v${v}, DB: ${envConfig.REDIS.DB || 0})`);
+      logger.info(`Redis initialized (v${v}, DB: ${envConfig.REDIS.DB})`);
     } catch {
       logger.info("Redis initialized");
     }
-  } catch (err: unknown) {
-    const message = errorMessage(err);
-    logger.error(`Redis initialization failed at ${redisUrl}`, {
-      error: message,
+  } catch (error: unknown) {
+    logger.error(`Redis initialization failed at ${redisTarget}`, {
+      error: errorMessage(error),
     });
     isConnected = false;
-    throw err;
+    throw error;
   }
 }
 

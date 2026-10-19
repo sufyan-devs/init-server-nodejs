@@ -27,7 +27,6 @@
       "@constants/*": ["./constants/*"],
       "@middlewares/*": ["./middlewares/*"],
       "@utils/*": ["./utils/*"],
-      "@modules/*": ["./modules/*"],
       "@auth/*": ["./modules/auth/*"],
       "@audit/*": ["./modules/audit/*"],
       "@user/*": ["./modules/user/*"],

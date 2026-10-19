@@ -5,7 +5,7 @@ import * as userModule from '@user/index';
 import * as couponModule from '@coupon/index';
 import * as referralModule from '@referral/index';
 import * as dashboardModule from '@dashboard/index';
-import { verifyCsrf } from '@middlewares/csrf';
+import { verifyCsrf } from '@auth/index';
 
 const router = Router();
 

@@ -5,16 +5,11 @@ import User from '@user/models/User';
 import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
 import response from '@utils/response';
-import {
-  toObjectId,
-  isValidObjectId,
-  purchaseDecimalFields,
-  todayDateRange,
-  formatDate,
-} from '@utils/mongoHelper';
+import { toObjectId, isValidObjectId } from '@utils/mongoHelper';
+import { purchaseDecimalFields, todayDateRange, formatDate } from '@coupon/helpers/mongo';
 
 const purchase = catchAsync(async (req, res) => {
-  const { couponId, quantity = 1 } = req.body;
+  const { couponId, quantity = 1 } = req.body ?? {};
 
   if (!isValidObjectId(couponId)) {
     throw ApiError.badRequest("Invalid coupon ID");

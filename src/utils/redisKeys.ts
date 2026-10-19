@@ -26,6 +26,12 @@ export const sessionKey = (sid: string): string => `sess:${sid}`;
 export const userSessionsKey = (userId: string): string => `user:${userId}:sessions`;
 export const loginFailKey = (userId: string): string => `login:fail:${userId}`;
 export const loginLockKey = (userId: string): string => `login:lock:${userId}`;
+export const resetSessionKey = (resetId: string): string => `reset_session:${resetId}`;
+
+type OtpKeyPart = 'code' | 'attempts' | 'send_count';
+
+export const otpKey = (purpose: string, email: string, part: OtpKeyPart): string =>
+  `otp:${purpose}:${identifierHash(email)}:${part}`;
 
 export type RateLimitScope = 'ip' | 'acct';
 
@@ -55,6 +61,18 @@ export async function getKey(key: string): Promise<string | null> {
   assertConnected();
   assertKey(key);
   return await redisClient.get(key);
+}
+
+interface ValueWithTtl {
+  value: string | null;
+  ttlSeconds: number;
+}
+
+export async function getKeyWithTtl(key: string): Promise<ValueWithTtl> {
+  assertConnected();
+  assertKey(key);
+  const [value, ttl] = await redisClient.multi().get(key).ttl(key).exec();
+  return { value: typeof value === 'string' ? value : null, ttlSeconds: Number(ttl) };
 }
 
 export async function delKey(...keys: string[]): Promise<number> {

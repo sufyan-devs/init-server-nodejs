@@ -1,26 +1,33 @@
 # Coding Practices
 
+> **Verified against the code on 2026-10-19.** Examples marked *illustrative* name code that does not exist.
+>
 > **Companion to [project-structure.md](project-structure.md).**
 > That file says *where code goes*. This file says *how to write the code itself* —
 > so it stays **easy to read, easy to debug, scalable, and free of duplication**.
 >
-> Read it once, then keep it open while coding. Every rule has a ❌ bad / ✅ good
-> example pulled from real patterns in this codebase.
+> Read it once, then keep it open while coding. Most rules have a ❌ bad / ✅ good
+> example; the ones that name real code cite it as `file:line`.
 
 ---
 
-## The 10 Principles (the whole file in one screen)
+## The 15 Rules (the whole file in one screen — one line per section)
 
-1. **Don't Repeat Yourself (DRY)** — write a thing once, import it everywhere.
+1. **DRY** — write a thing once, import it everywhere; extract on the third copy.
 2. **One function = one job** — small, named, testable.
 3. **Encapsulate** — hide *how*, expose *what* (the front-door rule).
-4. **Reuse before you write** — check `utils/` and `services/` first.
-5. **Name for intent** — code reads like a sentence; comments explain *why*, not *what*.
-6. **Fail loud, fail early** — validate at the edge, throw typed errors.
-7. **No magic values** — constants, not scattered strings/numbers.
-8. **Pure where possible** — same input → same output; side-effects isolated.
-9. **Shallow & flat** — guard clauses over nested `if`; early `return`.
-10. **Debuggable by default** — structured logs, request IDs, clear error messages.
+4. **Reuse before you write** — check `utils/` and the module's `services/` first.
+5. **No magic values** — named constants, not scattered strings/numbers.
+6. **Fail loud, fail early** — validate at the edge, throw `ApiError` with a `code`.
+7. **Shallow & flat** — guard clauses over nested `if`; early `return`.
+8. **Name for intent** — code reads like a sentence; comments explain *why*, not *what*.
+9. **Pure where possible** — calculation separate from I/O.
+10. **Consistency beats cleverness** — match the surrounding file.
+11. **Right primitive** — a value's type stays stable.
+12. **Real booleans** — `true`/`false`, and an enum for more than two states.
+13. **Strict comparisons** — `===` everywhere; `== null` is the one exception.
+14. **Don't repeat a comparison** — name it, `includes` it, or table it.
+15. **Right control flow** — guard `if`, `switch` with `default`, lookup map, simple ternary.
 
 ---
 
@@ -35,12 +42,13 @@ If you copy-paste a block, stop — extract it.
 | Pure helper, no business rules | `src/utils/` |
 | Business rule reused across roles | `modules/<domain>/services/` |
 | A fixed value (status, role, limit) | `src/constants/` or a model's `types.ts` |
-| Same DB query | a service method (or `repositories/` if SQL) |
+| Same DB query | a service method today; the entity's `models/<X>/repo.ts` in the Prisma target |
 | Same response/error | `utils/response.ts` + `utils/apiError.ts` |
 
 **Real example — field stripping is duplicated today.**
-`coupon/controllers/vendor/index.ts` hand-deletes fields (`delete obj.sellingPrice`,
-`delete obj.userId`, ...), and several `schema.ts` files do their own `delete obj.__v`.
+`coupon/controllers/vendor/index.ts:15-18` hand-deletes fields (`delete obj.sellingPrice`,
+`delete obj.userId`, ...), and several `schema.ts` files do their own `delete obj.__v`
+(`coupon/models/Coupon/schema.ts:184`, `user/models/User/schema.ts:69`).
 That's the same idea written many times.
 
 ```ts
@@ -50,7 +58,7 @@ delete obj.sellingPrice; delete obj.userId; delete obj.createdAt;
 ```
 
 ```ts
-// ✅ one reusable shaper, imported wherever needed
+// ✅ one reusable shaper, imported wherever needed — illustrative, no such file exists
 // utils/sanitize.ts
 export const omit = <T extends object>(obj: T, keys: (keyof T)[]) => {
   const clone = { ...obj };
@@ -62,7 +70,8 @@ const vendorView = omit(coupon.toJSON(), ['sellingPrice', 'userId', 'createdAt']
 ```
 
 > **Rule of three:** the *first* time write it inline. The *second* time, note the
-> duplication. The *third* time, extract it. (Don't over-abstract on day one either.)
+> duplication. The *third* time, extract it. An abstraction with fewer than three real callers
+> is deleted (CLAUDE.md hard rule 10).
 
 ---
 
@@ -76,9 +85,9 @@ const create = async (req, res) => { /* validate + save + email, 80 lines */ };
 ```
 
 ```ts
-// ✅ each job named and separate (validator → service → event)
+// ✅ each job named and separate (validator → service) — illustrative, couponService does not exist
 const create = catchAsync(async (req, res) => {
-  const coupon = await couponService.createForVendor(req.user.id, req.body);
+  const coupon = await couponService.createForVendor(String(req.user!._id), req.body);
   return response.created(res, coupon);
 });
 ```
@@ -113,7 +122,7 @@ import Coupon from '@coupon/models/Coupon/schema';
 helper functions module-private (don't `export` them) unless another file needs them.
 
 ```ts
-// service file
+// service file — illustrative
 const buildReferralBlock = (coupon) => { ... };   // private — no export
 export const createForVendor = (...) => { ... };  // public API only
 ```
@@ -122,22 +131,24 @@ export const createForVendor = (...) => { ... };  // public API only
 
 ## 4. Reuse Before You Write
 
-Before writing a helper, **search `utils/` first** — it may already exist. This repo
-already has a strong toolbox; use it instead of re-inventing:
+Before writing a helper, **search `utils/` first** — it may already exist:
 
 | Need | Use (already exists) |
 |------|----------------------|
 | Validate / convert an ObjectId | `toObjectId`, `isValidObjectId` (`@utils/mongoHelper`) |
-| Money fields | `priceField`, `getDecimal`, `couponDecimalFields` |
-| Date range / formatting | `todayDateRange`, `formatDate` |
-| Send a response | `response.success/created/error/notFound` |
-| Throw an error | `ApiError.badRequest/notFound/...` |
-| Async error wrapping | `catchAsync` |
-| Redis get/set/del with TTL | `setKey/getKey/delKey` (`@utils/redisKeys`) |
+| Normalise an email, escape HTML or a regex, read an error's message | `normalizeEmail`, `escapeHtml`, `escapeRegex`, `errorMessage` (`@utils/format`) |
+| Send a response | `response.success/created/error/notFound` (`@utils/response`) |
+| Throw an error | `ApiError.badRequest/forbidden/notFound/conflict/internal`, `ApiError.fromAuthError(entry)` (`@utils/apiError`) |
+| Async handler wrapping | `catchAsync` (`@utils/catchAsync`) |
+| Redis get/set/del with TTL, Redis key names | `setKey/getKey/delKey/getKeyWithTtl` and the key builders (`@utils/redisKeys`) |
+| A numeric env value | `readInt` (`@config/env`) |
 | Logging | `logger` (`@utils/logger`) |
 
-> **Rule:** a new `utils/` helper must be **pure** (no business logic, no req/res).
-> If it knows about "coupons" or "vendors", it belongs in a **service**, not utils.
+Coupon money and date helpers (`priceField`, `getDecimal`, `todayDateRange`, `formatDate`) are
+product code in `coupon/helpers/mongo.ts`, not utils.
+
+> **Rule:** a `utils/` helper carries **no business knowledge**. If it knows about "coupons" or
+> "vendors", it belongs in that module's service or `helpers/`, not utils.
 
 ---
 
@@ -164,7 +175,7 @@ Benefits: autocomplete, one place to change, the compiler catches typos.
 Validate at the **edge**, throw a **typed** error, let the central handler format it.
 
 ```ts
-// ✅ guard clauses at the top, then the happy path runs flat
+// ✅ guard clauses at the top, then the happy path runs flat — illustrative
 const submit = async (id: string) => {
   if (!isValidObjectId(id)) throw ApiError.badRequest('Invalid id', 'BAD_ID');
   const coupon = await Coupon.findById(id);
@@ -197,7 +208,7 @@ if (user) {
 
 ```ts
 // ✅ exit early, keep the main logic at the left margin
-if (!user) throw ApiError.unauthorized();
+if (!user) throw ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED);
 if (!user.active) throw ApiError.forbidden('Inactive user');
 if (!coupon) throw ApiError.notFound('Coupon not found');
 // do work — flat and readable
@@ -228,7 +239,8 @@ const pendingCoupons = await Coupon.find({ status: COUPON_STATUS.PENDING });
 ```
 
 **Comments explain WHY, not WHAT.** If a comment restates the code, delete it and
-rename instead.
+rename instead. Match the comment density of the surrounding file — in this repo that is close to
+zero (CLAUDE.md hard rule 10).
 
 ```ts
 // ❌ noise
@@ -252,8 +264,8 @@ export const finalPrice = (base: number, discount: Discount): number =>
     ? base * (1 - discount.value / 100)
     : base - discount.value;
 
-// side-effects (DB, email, redis) stay in services, called explicitly
-const coupon = await couponRepo.create(data);   // I/O isolated in the repo/service
+// side-effects (DB, email, redis) stay in services, called explicitly — illustrative
+const coupon = await Coupon.create(data);       // I/O isolated in the service
 ```
 
 **Rule:** a function that *both* calculates *and* hits the DB is two functions.
@@ -267,7 +279,7 @@ one-off that breaks the pattern costs more than it saves.
 
 - Match the surrounding file's style, naming, and structure.
 - New endpoint? Copy an existing one as the template, then change the logic.
-- `npm run lint:fix` + `type-check` before every commit — the tools settle style
+- `npm run lint:fix` + `npm run type-check` before every commit — the tools settle style
   arguments so humans don't.
 
 ---
@@ -340,7 +352,8 @@ if (coupon.status === COUPON_STATUS.PUBLISHED) { ... }
 ### Always `===` / `!==` (never `==` / `!=`)
 
 `==` does type coercion with surprising results (`0 == ''`, `'' == false`,
-`1 == '1'` are all `true`). Use strict equality everywhere.
+`1 == '1'` are all `true`). Use strict equality everywhere. ESLint enforces it: `eqeqeq` with
+`null: "ignore"` (`eslint.config.js:56`).
 
 ```ts
 // ❌ loose — coerces types, hides bugs
@@ -356,7 +369,7 @@ if (count === 0) { ... }
 only `==` worth keeping.
 
 ```ts
-// ✅ true for BOTH null and undefined (this repo uses this pattern already)
+// ✅ true for BOTH null and undefined (coupon/controllers/vendor/index.ts:35)
 if (redeemLimit?.total != null && redeemLimit?.perUser != null) { ... }
 
 // equivalent but verbose:
@@ -400,12 +413,12 @@ it. This is DRY (§1) applied to logic.
 
 ```ts
 // ❌ same variable compared over and over
-if (role === 'ADMIN' || role === 'SUPER_ADMIN' || role === 'STAFF') { ... }
+if (status === 'INACTIVE' || status === 'EXPIRED' || status === 'SOLD_OUT') { ... }
 
 // ✅ one readable membership check
-const STAFF_ROLES = [ROLE_CODE.ADMIN, ROLE_CODE.SUPER_ADMIN, ROLE_CODE.STAFF];
-if (STAFF_ROLES.includes(role)) { ... }
-// for hot paths / big lists, a Set gives O(1): new Set([...]).has(role)
+const CLOSED_STATUSES: readonly CouponStatus[] = [COUPON_STATUS.INACTIVE, COUPON_STATUS.EXPIRED, COUPON_STATUS.SOLD_OUT];
+if (CLOSED_STATUSES.includes(status)) { ... }
+// for hot paths / big lists, a Set gives O(1): new Set([...]).has(status)
 ```
 
 ### A compound condition used twice → name it once
@@ -440,8 +453,8 @@ Pick the structure that makes intent clearest. Rough guide:
 
 ### Guard clauses beat nested `if` (recap of §7)
 ```ts
-if (!user) throw ApiError.unauthorized();
-if (!coupon) throw ApiError.notFound();
+if (!user) throw ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED);
+if (!coupon) throw ApiError.notFound('Coupon not found');
 // happy path, flat
 ```
 
@@ -461,7 +474,8 @@ switch (status) {
 }
 ```
 > Always include a `default`. In a `switch`, every `case` should `return`/`break` —
-> accidental fall-through is a classic bug (your ESLint rule `noFallthroughCasesInSwitch` guards this).
+> accidental fall-through is a classic bug. The TypeScript compiler option
+> `noFallthroughCasesInSwitch` (`tsconfig.json:12`) rejects it at `npm run type-check`.
 
 ### Best for "key → value/handler": a lookup map (no branching)
 ```ts
@@ -489,12 +503,13 @@ const x = a ? b ? c : d : e ? f : g;
 
 - [ ] No copy-pasted block — duplication extracted to util/service/constant.
 - [ ] Each function does one nameable job; no "and" in the name.
-- [ ] Imported from front-door `index.ts`, not internal files.
+- [ ] Imported from front-door `index.ts`, not internal files (across modules: `@<x>/index`, models
+      excepted — [project-structure.md §12](project-structure.md) Rule 1).
 - [ ] Reused existing `utils/` helpers instead of rewriting.
 - [ ] No magic strings/numbers — used a named constant.
-- [ ] Validated input at the edge; errors thrown via `ApiError` with a `code`.
+- [ ] Validated input at the edge (zod via `validate()`); errors thrown via `ApiError` with a `code`.
 - [ ] Guard clauses, not nested pyramids (≤ 3 indent levels).
-- [ ] Names read like intent; comments say *why*, not *what*.
+- [ ] Names read like intent; comments say *why*, not *what*; comment density matches the file.
 - [ ] Calculation separated from DB/network side-effects.
 - [ ] Right primitive for each value; types stay stable (no "stringly typed").
 - [ ] Real `boolean` flags (not `1/0`/`"yes"`); >2 states use an enum, not many booleans.
@@ -502,7 +517,7 @@ const x = a ? b ? c : d : e ? f : g;
 - [ ] Used `??`/`?.` for null-safety; didn't use `||`/`if(x)` where `0`/`''` are valid.
 - [ ] No repeated comparison — extracted to a named boolean, `includes`, or a map.
 - [ ] Right control flow: guard `if` / `switch` (with `default`) / lookup map / simple ternary.
-- [ ] `lint:fix` and `type-check` pass.
+- [ ] `npm run lint:fix` and `npm run type-check` pass.
 
 ---
 

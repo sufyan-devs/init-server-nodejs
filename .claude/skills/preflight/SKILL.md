@@ -17,6 +17,9 @@ npm run lint:fix
 npm run type-check
 ```
 
+These are the only build-ish commands to run. Never `npm install`, `npm ci`, `npx` or
+`npm run build` (CLAUDE.md hard rule 0).
+
 If either fails, **stop and fix it before auditing.** Reporting style findings on code that does
 not compile wastes everyone's time.
 
@@ -25,10 +28,11 @@ not compile wastes everyone's time.
 ```bash
 git status --short
 git diff HEAD --stat
+git ls-files --others --exclude-standard src
 ```
 
-If the diff is empty, say so and stop. Inherited legacy code that the diff does not touch is out of
-scope — it is being replaced wholesale (see `docs/decisions.md`).
+If the diff is empty and there are no new files, say so and stop. Inherited legacy code that the
+diff does not touch is out of scope.
 
 **3. Run the three audits in parallel** — one message, three `Agent` calls, so they run
 concurrently:
@@ -37,15 +41,20 @@ concurrently:
 - `perf-auditor` — docs/standards/performance-practices.md compliance
 - `structure-auditor` — docs/standards/project-structure.md placement and boundaries
 
-Give each the changed file list. Tell them to report findings only, not to edit.
+Give each the changed file list, tell them to report findings only, not to edit, and pass the hard
+constraints verbatim:
 
-**4. Apply the docs/standards/coding-practices.md pre-commit checklist** yourself to anything the agents missed —
-it is the bar the repo is held to.
+> NEVER run npm install, npm ci, npx (in any form), or add any package. NEVER run npm run build.
+> You may run `npm run type-check`. Do NOT run `npm run lint:fix` — it edits files; the caller runs it.
+
+**4. Apply the docs/standards/coding-practices.md pre-commit checklist** yourself to anything the
+agents missed — it is the bar the repo is held to.
 
 **5. Consolidate.** Merge the three reports, drop duplicates, rank most severe first:
 
-- **Must fix** — bugs, security issues, boundary violations, anything that puts a DB call on the
-  auth hot path, anything that makes a client change require a code change
+- **Must fix** — bugs, security issues, boundary violations, anything that puts a database call on
+  the auth hot path (CLAUDE.md hard rule 7), anything that makes a client change require a code
+  change
 - **Should fix** — real violations with a clear fix
 - **Consider** — judgement calls
 

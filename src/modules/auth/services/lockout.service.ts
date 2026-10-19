@@ -7,7 +7,7 @@ import {
   setKey,
 } from '@utils/redisKeys';
 import { envConfig } from '@config/env';
-import AuthErrors from '@constants/authErrors';
+import AUTH_ERRORS from '@constants/authErrors';
 import ApiError from '@utils/apiError';
 import { logger } from '@utils/logger';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
@@ -20,7 +20,7 @@ const isLocked = async (userId: string): Promise<boolean> =>
 
 const assertNotLocked = async (userId: string): Promise<void> => {
   if (await isLocked(userId)) {
-    throw ApiError.fromAuthError(403, AuthErrors.ACCOUNT_LOCKED);
+    throw ApiError.fromAuthError(AUTH_ERRORS.ACCOUNT_LOCKED);
   }
 };
 
@@ -50,7 +50,7 @@ const recordFailure = async (userId: string): Promise<void> => {
 };
 
 const clearFailures = async (userId: string): Promise<void> => {
-  await delKey(loginFailKey(userId), loginLockKey(userId));
+  await Promise.all([delKey(loginFailKey(userId)), delKey(loginLockKey(userId))]);
 };
 
 export default { assertNotLocked, recordFailure, clearFailures };

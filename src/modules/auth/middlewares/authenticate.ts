@@ -4,21 +4,16 @@ import { SESSION_INVALID_REASON, type SessionInvalidReason, type SessionRecord }
 import { Types } from 'mongoose';
 import type { AuthUser } from '@user/models/User';
 import ApiError from '@utils/apiError';
-import AuthErrors, { type AuthError } from '@constants/authErrors';
-import { getSessionToken, getCookieOptions, refreshSessionCookie } from '@utils/cookieHelper';
-import { logger } from '@utils/logger';
+import AUTH_ERRORS, { type AuthError } from '@constants/authErrors';
+import { getSessionToken, clearSessionCookie, refreshSessionCookie } from '@utils/cookieHelper';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
-import { errorMessage } from '@utils/format';
 
 const INVALID_REASON_ERRORS: Record<SessionInvalidReason, AuthError> = {
-  [SESSION_INVALID_REASON.NOT_FOUND]: AuthErrors.SESSION_NOT_FOUND,
-  [SESSION_INVALID_REASON.MALFORMED]: AuthErrors.SESSION_EXPIRED,
-  [SESSION_INVALID_REASON.SECRET_MISMATCH]: AuthErrors.SESSION_EXPIRED,
-  [SESSION_INVALID_REASON.EXPIRED_ABSOLUTE]: AuthErrors.SESSION_EXPIRED,
-};
-
-const clearCookie = (res: Response, cookieName: string): void => {
-  res.cookie(cookieName, '', { ...getCookieOptions(), maxAge: 0 });
+  [SESSION_INVALID_REASON.NOT_FOUND]: AUTH_ERRORS.SESSION_NOT_FOUND,
+  [SESSION_INVALID_REASON.MALFORMED]: AUTH_ERRORS.SESSION_EXPIRED,
+  [SESSION_INVALID_REASON.SECRET_MISMATCH]: AUTH_ERRORS.SESSION_EXPIRED,
+  [SESSION_INVALID_REASON.EXPIRED_ABSOLUTE]: AUTH_ERRORS.SESSION_EXPIRED,
+  [SESSION_INVALID_REASON.PORTAL_MISMATCH]: AUTH_ERRORS.SESSION_EXPIRED,
 };
 
 const toAuthUser = (session: SessionRecord): AuthUser => ({
@@ -32,38 +27,36 @@ const toAuthUser = (session: SessionRecord): AuthUser => ({
   availableRoles: session.availableRoles,
 });
 
-const authenticate = (portalRole?: string) => {
+// Anything thrown here (e.g. Redis down) reaches next() as a 5xx: answering 401 would
+// tell every client to drop a session that is still valid.
+const authenticate = (roleCode: string) => {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const result = getSessionToken(req, portalRole);
-      if (!result) return next(ApiError.fromAuthError(401, AuthErrors.SESSION_REQUIRED));
+      const token = getSessionToken(req, roleCode);
+      if (!token) return next(ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED));
 
-      const { token, cookieName } = result;
-
-      const verified = await sessionService.verifySessionToken(token);
+      const verified = await sessionService.verifySessionToken(token, roleCode);
       if (!verified.valid) {
-        clearCookie(res, cookieName);
-        return next(ApiError.fromAuthError(401, INVALID_REASON_ERRORS[verified.reason]));
+        clearSessionCookie(res, roleCode);
+        return next(ApiError.fromAuthError(INVALID_REASON_ERRORS[verified.reason]));
       }
 
       const { session } = verified;
 
-      refreshSessionCookie(res, cookieName, token, cookieMaxAgeMs(session));
+      refreshSessionCookie(res, token, roleCode, cookieMaxAgeMs(session));
 
       req.user = toAuthUser(session);
       req.sessionId = session.sid;
       next();
     } catch (error: unknown) {
-      if (error instanceof ApiError) return next(error);
-      logger.error('Session verification failed', { error: errorMessage(error) });
-      next(ApiError.fromAuthError(401, AuthErrors.SESSION_EXPIRED));
+      next(error);
     }
   };
 };
 
 // Checks availableRoles, not activeRole: holding a role passes while acting as another.
 const authorizeRoles = (...allowedRoles: string[]) => (req: Request, _res: Response, next: NextFunction): void => {
-  if (!req.user) return next(ApiError.fromAuthError(401, AuthErrors.SESSION_REQUIRED));
+  if (!req.user) return next(ApiError.fromAuthError(AUTH_ERRORS.SESSION_REQUIRED));
   const hasRole: boolean = allowedRoles.some((role: string) => (req.user!.availableRoles || []).includes(role));
   if (!hasRole) {
     void record({
@@ -73,7 +66,7 @@ const authorizeRoles = (...allowedRoles: string[]) => (req: Request, _res: Respo
       resource: req.path,
       meta: { required: allowedRoles, activeRole: req.user.activeRole },
     });
-    return next(ApiError.fromAuthError(403, AuthErrors.INSUFFICIENT_PERMISSIONS));
+    return next(ApiError.fromAuthError(AUTH_ERRORS.INSUFFICIENT_PERMISSIONS));
   }
   next();
 };

@@ -1,5 +1,5 @@
 import mongoose, { Schema } from 'mongoose';
-import { priceField } from '@utils/mongoHelper';
+import { priceField } from '@coupon/helpers/mongo';
 import type { ICouponPurchase } from './types';
 import { PAYMENT_STATUS, PAYMENT_METHOD } from './types';
 

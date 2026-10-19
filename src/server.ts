@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import type { Server } from 'node:http';
 import type { Request, Response } from 'express';
 import express from 'express';
 import path from 'path';
@@ -9,19 +10,17 @@ import cookieParser from 'cookie-parser';
 import { envConfig } from '@config/env';
 import { connectDatabase, disconnectDatabase } from '@config/database';
 import { logger } from '@utils/logger';
-import { initRedis } from '@utils/redisClient';
+import { initRedis, redisClient } from '@utils/redisClient';
+import ApiError from '@utils/apiError';
+import { errorMessage } from '@utils/format';
 import requestIdMiddleware from '@middlewares/requestId';
 import httpLoggerMiddleware from '@middlewares/httpLogger';
-import indexRoutes from './routes/index';
+import indexRoutes from '@/routes/index';
 import errorMiddleware from '@middlewares/errorMiddleware';
 
 import '@user/models/User';
 import '@user/models/Role';
 import '@user/models/UserRole';
-import '@coupon/models/Coupon';
-import '@coupon/models/CouponPurchase';
-import '@coupon/models/CouponRedeem';
-import '@referral/models/Referral';
 import { globalRateLimit, rateLimit } from '@middlewares/rateLimit';
 
 const app = express();
@@ -61,7 +60,7 @@ app.use(
       if (!envConfig.IN_PROD && origin.match(/^https?:\/\/localhost(:\d+)?$/)) {
         return callback(null, true);
       }
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
+      callback(ApiError.forbidden('Origin not allowed', 'CORS_ORIGIN_DENIED'));
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -104,31 +103,31 @@ app.use('/api/v1', indexRoutes);
 
 app.use(errorMiddleware);
 
+let httpServer: Server | undefined;
+
 const startServer = async (): Promise<void> => {
   try {
     if (envConfig.IN_PROD && allowedOrigins.length === 0) {
-      logger.error('ALLOWED_ORIGINS or CORS_ORIGIN is required in production');
+      logger.error('ALLOWED_ORIGINS is required in production');
       process.exit(1);
     }
 
     // Fail fast: sessions live in Redis, so without it every login fails.
+    // initRedis has already logged the cause.
     try {
       await initRedis();
-    } catch (redisErr: unknown) {
-      const err = redisErr as NodeJS.ErrnoException & { address?: string; port?: number };
-      logger.error('Redis initialization failed — refusing to start', {
-        message: err.message,
-        code: err.code,
-        address: err.address,
-        port: err.port,
-        syscall: err.syscall,
-      });
+    } catch {
       process.exit(1);
     }
 
     await connectDatabase();
 
-    app.listen(envConfig.PORT, () => {
+    // Express 5 hands listen errors (e.g. EADDRINUSE) to this callback instead of throwing.
+    httpServer = app.listen(envConfig.PORT, (error?: Error) => {
+      if (error) {
+        logger.error('HTTP server failed to start', { error: error.message });
+        process.exit(1);
+      }
       if (!envConfig.IN_PROD) {
         logger.info(`${envConfig.APP_NAME} running on port ${envConfig.PORT} [${envConfig.NODE_ENV}]`);
         logger.info(`Health: http://localhost:${envConfig.PORT}/health`);
@@ -146,8 +145,18 @@ const startServer = async (): Promise<void> => {
 
 const shutdown = async (signal: string): Promise<void> => {
   logger.info(`${signal} received — shutting down...`);
-  await disconnectDatabase();
-  process.exit(0);
+  try {
+    const server = httpServer;
+    if (server?.listening) {
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
+    await disconnectDatabase();
+    if (redisClient.isOpen) await redisClient.close();
+    process.exit(0);
+  } catch (error: unknown) {
+    logger.error('Shutdown failed', { error: errorMessage(error) });
+    process.exit(1);
+  }
 };
 
 process.on('SIGINT', () => void shutdown('SIGINT'));

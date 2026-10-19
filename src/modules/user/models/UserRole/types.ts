@@ -38,12 +38,6 @@ export interface IUserRole extends Document {
 
   createdAt: Date;
   updatedAt: Date;
-
-  approve(approvedByUserId: Types.ObjectId): Promise<IUserRole>;
-  reject(rejectedByUserId: Types.ObjectId, reason: string): Promise<IUserRole>;
-  suspend(suspendedByUserId: Types.ObjectId, reason: string): Promise<IUserRole>;
-  unsuspend(): Promise<IUserRole>;
-  revoke(revokedByUserId: Types.ObjectId, reason: string): Promise<IUserRole>;
 }
 
 export interface AssignRoleOptions {
@@ -55,7 +49,5 @@ export interface AssignRoleOptions {
 export interface IUserRoleModel extends Model<IUserRole> {
   getUserActiveRoles(userId: Types.ObjectId): ReturnType<Model<IUserRole>['find']>;
   getUserRoleCodes(userId: Types.ObjectId): Promise<string[]>;
-  hasRole(userId: Types.ObjectId, roleCode: string): Promise<boolean>;
-  getPendingRequests(roleCode?: string | null): ReturnType<Model<IUserRole>['find']>;
   assignRole(userId: Types.ObjectId, roleCode: string, options?: AssignRoleOptions): Promise<IUserRole>;
 }

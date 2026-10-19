@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { normalizeEmail } from '@utils/format';
+import { ROLE_CODE, ROLE_TYPE } from '@user/models/Role';
 
 const objectId = z.string().regex(/^[a-f0-9]{24}$/i, { error: 'Invalid id' });
 
@@ -23,9 +24,9 @@ const MAX_PAGE_SIZE = 100;
 
 export const idParamSchema = z.object({ id: objectId });
 
-// sortBy reaches a $sort key and search reaches a $regex, so both are allow-listed
-// rather than sanitised. Express also yields an array or object for a repeated or
-// bracketed param, which is why every field is parsed and not just cast.
+// sortBy reaches a $sort key, so it is allow-listed; search reaches a $regex, so it is
+// length-bounded here and escaped by the controller. Express also yields an array or object
+// for a repeated or bracketed param, which is why every field is parsed and not just cast.
 export const managedUserListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
@@ -49,5 +50,37 @@ export const createManagedUserSchema = z.strictObject({
   phoneNumber: phoneNumber.optional(),
 });
 
+export const roleListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE),
+  search: z.string().trim().max(100).default(''),
+  roleType: z.enum(ROLE_TYPE).optional(),
+  sortBy: z.enum(['code', 'name', 'roleType', 'isActive', 'createdAt']).default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+const roleName = z.string().trim().min(1).max(100);
+const roleDescription = z.string().trim().max(500);
+
+export const createRoleSchema = z.strictObject({
+  code: z.string().trim().toUpperCase().pipe(z.enum(ROLE_CODE)),
+  name: roleName,
+  description: roleDescription.default(''),
+  roleType: z.enum(ROLE_TYPE),
+  canSelfRegister: z.boolean().default(false),
+  autoApproveOnSignup: z.boolean().default(false),
+  emailVerificationRequired: z.boolean().default(false),
+});
+
+export const updateRoleSchema = z.strictObject({
+  name: roleName.optional(),
+  description: roleDescription.optional(),
+  roleType: z.enum(ROLE_TYPE).optional(),
+  canSelfRegister: z.boolean().optional(),
+  autoApproveOnSignup: z.boolean().optional(),
+  emailVerificationRequired: z.boolean().optional(),
+});
+
 export type ManagedUserListQuery = z.infer<typeof managedUserListQuerySchema>;
+export type RoleListQuery = z.infer<typeof roleListQuerySchema>;
 

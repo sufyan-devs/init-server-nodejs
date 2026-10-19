@@ -1,7 +1,7 @@
 import type { Types } from 'mongoose';
 import mongoose, { Schema } from 'mongoose';
 import crypto from 'crypto';
-import { envConfig } from '@config/env';
+import { COUPON_REDEEM } from '@coupon/config';
 import type { ICouponRedeem, ICouponRedeemModel, GenerateCodeData } from './types';
 import { REDEEM_STATUS } from './types';
 
@@ -161,8 +161,8 @@ couponRedeemSchema.methods.sendOTP = async function (this: ICouponRedeem): Promi
     throw new Error(`Cannot initiate OTP for code with status: ${this.status}`);
   }
 
-  const maxSends = envConfig.COUPON_REDEEM.SEND_MAX_REQUESTS;
-  const windowMs = envConfig.COUPON_REDEEM.SEND_WINDOW_MINUTES * 60 * 1000;
+  const maxSends = COUPON_REDEEM.SEND_MAX_REQUESTS;
+  const windowMs = COUPON_REDEEM.SEND_WINDOW_MINUTES * 60 * 1000;
 
   if (this.otp.firstSentAt && Date.now() - this.otp.firstSentAt.getTime() > windowMs) {
     this.otp.sendCount = 0;
@@ -188,7 +188,7 @@ couponRedeemSchema.methods.sendOTP = async function (this: ICouponRedeem): Promi
 
   this.otp.hash = otpCode;
   this.otp.expiresAt = new Date(
-    Date.now() + envConfig.COUPON_REDEEM.OTP_EXPIRY_MINUTES * 60 * 1000,
+    Date.now() + COUPON_REDEEM.OTP_EXPIRY_MINUTES * 60 * 1000,
   );
   this.otp.verified = false;
   this.otp.attempts = 0;
@@ -221,7 +221,7 @@ couponRedeemSchema.methods.verifyOTP = async function (
 
   this.otp.attempts += 1;
 
-  if (this.otp.attempts > envConfig.COUPON_REDEEM.VERIFY_MAX_ATTEMPTS) {
+  if (this.otp.attempts > COUPON_REDEEM.VERIFY_MAX_ATTEMPTS) {
     this.otp.hash = null;
     this.otp.expiresAt = null;
     await this.save();
@@ -230,7 +230,7 @@ couponRedeemSchema.methods.verifyOTP = async function (
 
   if (this.otp.hash !== inputOtp) {
     await this.save();
-    const remaining = envConfig.COUPON_REDEEM.VERIFY_MAX_ATTEMPTS - this.otp.attempts;
+    const remaining = COUPON_REDEEM.VERIFY_MAX_ATTEMPTS - this.otp.attempts;
     throw new Error(`Invalid OTP. ${remaining} attempt(s) remaining.`);
   }
 

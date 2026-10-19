@@ -1,15 +1,13 @@
-import { Types } from 'mongoose';
 import User, { USER_STATUS } from '@user/models/User';
 import type { IUser } from '@user/models/User';
 import Role from '@user/models/Role';
 import UserRole from '@user/models/UserRole';
 import ApiError from '@utils/apiError';
-import AuthErrors from '@constants/authErrors';
+import AUTH_ERRORS from '@constants/authErrors';
 import { logger } from '@utils/logger';
-import { AUTH_PROVIDER } from '@auth/providers';
+import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 import type { NormalizedIdentity, UserIdentity } from '@auth/providers';
-
-const DUPLICATE_KEY_ERROR_CODE = 11000;
+import { DUPLICATE_KEY_ERROR_CODE } from '@utils/mongoHelper';
 
 const NAME_FALLBACK = 'User';
 
@@ -43,7 +41,7 @@ const toIdentityEntry = (identity: NormalizedIdentity): UserIdentity => ({
 
 const assertUsable = (user: IUser): void => {
   if (user.status === USER_STATUS.ACTIVE) return;
-  throw ApiError.fromAuthError(403, AuthErrors.ACCOUNT_INACTIVE);
+  throw ApiError.fromAuthError(AUTH_ERRORS.ACCOUNT_INACTIVE);
 };
 
 const findByIdentity = async (identity: NormalizedIdentity): Promise<IUser | null> => {
@@ -60,12 +58,6 @@ const findByIdentity = async (identity: NormalizedIdentity): Promise<IUser | nul
 
 // Never link on an unverified email: claiming an address would otherwise take over the account.
 const findLinkTarget = async (identity: NormalizedIdentity): Promise<IUser | null> => {
-  if (identity.provider === AUTH_PROVIDER.PASSWORD) {
-    if (!Types.ObjectId.isValid(identity.providerUserId)) return null;
-    const user = await User.findById(identity.providerUserId);
-    return user;
-  }
-
   const email = normalizeEmail(identity.email);
   if (!email || !identity.emailVerified) return null;
 
@@ -80,12 +72,18 @@ const linkIdentity = async (user: IUser, identity: NormalizedIdentity): Promise<
     logger.warn('Refused to link an identity that belongs to another account', {
       provider: identity.provider,
     });
-    throw ApiError.fromAuthError(409, AuthErrors.EMAIL_ALREADY_EXISTS);
+    throw ApiError.fromAuthError(AUTH_ERRORS.EMAIL_ALREADY_EXISTS);
   }
 
   logger.info('Linked provider identity to existing user', {
     provider: identity.provider,
     userId: user._id.toString(),
+  });
+  void record({
+    actorId: user._id,
+    action: AUDIT_ACTION.PROVIDER_LINKED,
+    outcome: AUDIT_OUTCOME.SUCCESS,
+    meta: { provider: identity.provider },
   });
 };
 
@@ -117,8 +115,8 @@ const createUser = async (
   roleCode: string,
 ): Promise<ResolvedUser> => {
   const role = await Role.findByCode(roleCode);
-  if (!role) throw ApiError.fromAuthError(400, AuthErrors.INVALID_ROLE_REQUEST);
-  if (!role.canSelfRegister) throw ApiError.fromAuthError(403, AuthErrors.ROLE_NOT_AVAILABLE);
+  if (!role) throw ApiError.fromAuthError(AUTH_ERRORS.INVALID_ROLE_REQUEST);
+  if (!role.canSelfRegister) throw ApiError.fromAuthError(AUTH_ERRORS.ROLE_NOT_AVAILABLE);
 
   const needsEmailVerification = !!role.emailVerificationRequired;
 
@@ -134,7 +132,7 @@ const createUser = async (
       assertUsable(raced);
       return { user: raced, userId: raced._id.toString(), isNewUser: false };
     }
-    throw ApiError.fromAuthError(409, AuthErrors.EMAIL_ALREADY_EXISTS);
+    throw ApiError.fromAuthError(AUTH_ERRORS.EMAIL_ALREADY_EXISTS);
   }
 
   await UserRole.assignRole(user._id, roleCode, {
@@ -147,6 +145,12 @@ const createUser = async (
     provider: identity.provider,
     roleCode,
     userId: user._id.toString(),
+  });
+  void record({
+    actorId: user._id,
+    action: AUDIT_ACTION.REGISTER,
+    outcome: AUDIT_OUTCOME.SUCCESS,
+    meta: { provider: identity.provider, roleCode },
   });
 
   return { user, userId: user._id.toString(), isNewUser: true };
@@ -170,14 +174,14 @@ const resolveUser = async (
   }
 
   const email = normalizeEmail(identity.email);
-  if (!email) throw ApiError.fromAuthError(401, AuthErrors.INVALID_CREDENTIALS);
+  if (!email) throw ApiError.fromAuthError(AUTH_ERRORS.INVALID_CREDENTIALS);
 
   const emailOwner = await User.findByEmail(email);
   if (emailOwner) {
     logger.warn('Refused an identity whose email already belongs to an account', {
       provider: identity.provider,
     });
-    throw ApiError.fromAuthError(409, AuthErrors.EMAIL_ALREADY_EXISTS);
+    throw ApiError.fromAuthError(AUTH_ERRORS.EMAIL_ALREADY_EXISTS);
   }
 
   return createUser(identity, email, roleCode);

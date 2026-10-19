@@ -1,5 +1,5 @@
 import type { Document, Types } from 'mongoose';
-import type { DiscountType } from '../Coupon';
+import type { DiscountType } from '@coupon/models/Coupon';
 
 export const PAYMENT_STATUS = {
   PENDING: 'PENDING',

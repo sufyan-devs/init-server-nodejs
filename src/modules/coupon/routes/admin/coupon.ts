@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import * as couponController from '../../controllers/admin';
-import * as redemptionController from '../../controllers/admin/redemption';
-import { authenticate, authorizeRoles } from '@middlewares/authenticate';
+import * as couponController from '@coupon/controllers/admin';
+import * as redemptionController from '@coupon/controllers/admin/redemption';
+import { authenticate, authorizeRoles } from '@auth/index';
 import { ROLE_CODE } from '@user/models/Role';
 
 const router = Router();

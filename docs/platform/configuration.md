@@ -1,7 +1,10 @@
 # Configuration
 
+> **Verified against the code on 2026-10-19.** Line numbers refer to the working tree.
+
 Everything the server reads at boot is in `src/config/env.ts`, exported as `envConfig`. Nothing
-else in the codebase may read `process.env` — one place to look, one place to validate.
+else in `src/` reads `process.env`. A module that owns its own settings calls the exported
+`readInt` instead — the coupon module does this in `src/modules/coupon/config.ts:1-8`.
 
 ---
 
@@ -12,64 +15,93 @@ the design has drifted.**
 
 | Tier | Holds | Changed by | Examples |
 |---|---|---|---|
-| **Code** | true for every project, forever | a pull request | the permission catalog, session verification, the limiter algorithm |
-| **Env** | differs per deployment | ops | `MONGO_URI`, `JWT_SECRET`, `APP_NAME`, rate-limit numbers |
-| **Seed data** | differs per client | editing a seed array, then re-seeding | roles, role→permission grants, scopes |
+| **Code** | true for every project, forever | a pull request | session verification, the limiter algorithm |
+| **Env** | differs per deployment | ops | `MONGO_URI`, `COOKIE_SECRET`, `APP_NAME`, rate-limit numbers |
+| **Seed data** | differs per client | editing a seed array, then re-seeding | roles (`src/modules/user/seed/roles.ts`) |
 
-This is what makes the starter reusable. Onboarding a client should touch `.env`,
-`seed/roles.ts` and `seed/permissions.ts` — nothing else.
+**Today the line is not clean.** Two things that should be seed data are still code: the role
+codes (`ROLE_CODE`, `src/modules/user/models/Role/types.ts:10-16`) and which portal each role logs
+into (`src/utils/cookieHelper.ts:15-21`). A client with a new role edits both. Permissions as seed
+rows, with role→permission grants and scopes, are **target design — not built**
+([../modules/auth/authorization.md](../modules/auth/authorization.md)). The onboarding steps as they
+work today are in [README.md](../../README.md#starting-a-new-client-project).
 
 ---
 
 ## Fail fast
 
-Secrets have **no fallback**. `JWT_SECRET` and `COOKIE_SECRET` throw at boot when missing, with a
-message naming the variable and how to generate one.
+| Check | Where | What happens |
+|---|---|---|
+| `COOKIE_SECRET` missing or blank | `env.ts:132-138`, `195` | throws at import, naming the variable and how to generate one |
+| `MONGO_URI` missing in production | `env.ts:156-160`, `180` | throws; in development it falls back to `mongodb://localhost:27017/app` |
+| any integer setting not a whole number, or below its minimum | `readInt`, `env.ts:145-154` | throws, naming the variable and the bad value. Applies to every number in `env.ts`, `PORT` included (`env.ts:176`) |
+| `REDIS_URL` db index disagrees with `REDIS_DB` | `src/utils/redisClient.ts:16-21` | throws at import |
+| `ALLOWED_ORIGINS` empty in production | `src/server.ts:110-113` | logs and exits |
+| Redis unreachable at boot | `src/server.ts:117-121` | exits |
 
-The previous code defaulted `JWT_SECRET` to a hardcoded string. Shipping without the variable set
-meant signing tokens with a value that is public in the git history, and nothing would have looked
-wrong. A refusal to start is loud; a silent insecure default is not.
+`COOKIE_SECRET` is the only secret. It signs the session cookies (`src/server.ts:99`) and keys the
+CSRF HMAC (`src/modules/auth/middlewares/csrf.ts:23-26`). `JWT_SECRET` no longer exists — there are
+no JWTs to sign ([../decisions.md](../decisions.md)).
 
-Redis connectivity is the same: failure to connect **exits the process** rather than logging a
-warning and continuing.
+A refusal to start is loud; a silent insecure default is not. **Real world:** if `COOKIE_SECRET`
+fell back to a string in the code, a deployment that forgot to set it would sign every cookie with a
+value anyone can read in the git history, and nothing would look wrong.
+
+**Not validated:** strings and booleans. An unset string falls back to its default. A boolean
+switched off by the exact string `"false"` — `RATE_LIMIT_ENABLED`, `CSRF_ENABLED`,
+`PASSWORD_HIBP_CHECK`, `GOOGLE_AUTH_ENABLED` — is on for any other value, including a typo
+(`env.ts:252`, `285`, `297`, `304`). `EMAIL_SECURE` is the reverse: on only for `"true"`
+(`env.ts:208`).
 
 ---
 
 ## Groups
 
-| Group | Notable |
+| Group | Variables |
 |---|---|
 | Branding | `APP_NAME`, `APP_LOGO_URL` |
 | Core | `NODE_ENV`, `PORT`, `TRUSTED_PROXY_COUNT`, `ALLOWED_ORIGINS` |
 | Database | `MONGO_URI` |
-| Redis | `REDIS_URL` or host/port/password, timeouts, retries |
+| Seed | `SEED_ADMIN_PASSWORD` (read by `seed:users`; required there in production) |
+| Redis | `REDIS_URL` or `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD`, `REDIS_DB`, timeouts, retries |
 | Session | `SESSION_EXPIRY_MS`, `SESSION_ABSOLUTE_MAX_MS`, `SESSION_MAX_PER_USER` |
 | Cookies | `COOKIE_NAME`, `COOKIE_SECRET`, `COOKIE_DOMAIN`, `COOKIE_MAX_AGE_MS` |
-| Rate limits | `RATE_LIMIT_*` per bucket — max and window seconds |
+| CSRF | `CSRF_ENABLED`, `CSRF_COOKIE_NAME`, `CSRF_HEADER_NAME` |
+| Password policy | `PASSWORD_MIN_LENGTH` (default 8), `PASSWORD_HIBP_CHECK`, `ARGON2_*` |
+| Rate limits | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_<GLOBAL\|LOGIN\|REGISTER\|OTP>_MAX` and `_WINDOW_SECONDS` |
 | Lockout | `LOCKOUT_MAX_ATTEMPTS`, `LOCKOUT_WINDOW_SECONDS`, `LOCKOUT_DURATION_SECONDS` |
-| Providers | `GOOGLE_AUTH_ENABLED`, `GOOGLE_CLIENT_IDS` |
-| Email / OTP | SMTP settings, OTP length and expiry |
+| Providers | `GOOGLE_AUTH_ENABLED`, `GOOGLE_CLIENT_IDS` (comma-separated) |
+| OTP / password reset | `OTP_LENGTH`, `OTP_EXPIRY_MINUTES` (default 60), `OTP_SEND_*`, `OTP_VERIFY_MAX_ATTEMPTS`, `RESET_TOKEN_EXPIRY_MINUTES` (default 5) |
+| Email | `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_SECURE`, `EMAIL_USER`, `EMAIL_PASSWORD`, `EMAIL_FROM` |
+| Coupon module (product) | `COUPON_REDEEM_*` — read in `src/modules/coupon/config.ts`, not in `env.ts` |
 
-The API is mounted at a fixed `/api/v1` (`src/server.ts:103`) — it is not configurable, because a
+The old aliases `CORS_ORIGIN` and `GOOGLE_CLIENT_ID` are no longer read; use `ALLOWED_ORIGINS` and
+`GOOGLE_CLIENT_IDS`.
+
+`TRUSTED_PROXY_COUNT` is applied only when `NODE_ENV=production` (`src/server.ts:28-30`). In
+development `req.ip` is the socket address.
+
+The API is mounted at a fixed `/api/v1` (`src/server.ts:102`) — it is not configurable, because a
 prefix that varies per deployment makes every client's docs, Postman collection and frontend differ
 for no benefit.
 
-**Branding.** `APP_NAME` is the name in outbound email and in the `/health` payload. `APP_LOGO_URL`
-is optional: unset, the email header renders the name as text rather than a broken image
-(`src/modules/notification/email/templates.ts:53-63`). Cloning the starter for a client means
-setting these two, not editing templates.
+**Branding.** `APP_NAME` is the name in outbound email and in the `/health` payload
+(`src/server.ts:78`). `APP_LOGO_URL` is optional: unset, the email header renders the name as text
+rather than a broken image (`src/modules/notification/email/templates.ts:20-28`). Cloning the
+starter for a client means setting these two, not editing templates.
 
-`.env.example` is the authoritative list, with a comment on every entry explaining what it does and
-which are required. Copy it to `.env` to start.
+`.env.example` lists every variable with a comment. Its numbers and switches match the code
+defaults in `env.ts`; `REDIS_URL` and `ALLOWED_ORIGINS` are filled in with local-development values
+that the code does not default to. Copy it to `.env` to start.
 
 ---
 
 ## Rules
 
 - **Never read `process.env` outside `config/env.ts`.** Scattered reads cannot be validated, and a
-  typo becomes `undefined` at runtime instead of an error at boot.
-- **No product-specific config in `src/config/`.** Module configuration belongs to the module.
-  `COUPON_REDEEM_*` currently violates this and should move when the coupon module is dealt with.
-- **No magic numbers in code.** A timeout, a cap or a window is config with a documented default.
+  typo becomes `undefined` at runtime instead of an error at boot. Module config uses `readInt`.
+- **No product-specific config in `src/config/`.** Module configuration belongs to the module
+  (CLAUDE.md hard rule 6). `COUPON_REDEEM_*` now lives in `src/modules/coupon/config.ts`.
+- **No magic numbers in code** — [../standards/coding-practices.md §5](../standards/coding-practices.md).
 - Production secrets belong in a vault, not in a file on the box. `.env*` is gitignored except
   `.env.example`.

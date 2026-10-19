@@ -1,9 +1,12 @@
 # Documentation
 
+> **Verified against the repo on 2026-10-19.** This page is the index and the writing rules; the
+> paths in the tree below exist. It makes no claims about code.
+
 ```
 docs/
 ├─ decisions.md              # what is settled, what is still open
-├─ platform/                 # how the server itself works
+├─ platform/                 # how the server itself works (README = request pipeline)
 │  ├─ configuration.md · redis.md · rate-limiting.md
 │  └─ database.md · scaling.md
 ├─ standards/                # cross-cutting law, applies to all code
@@ -59,8 +62,9 @@ Every page states its status in the first three lines:
 ```
 
 A design document mistaken for documentation of working code costs hours and, in auth, can cost a
-security incident. [modules/auth/](modules/auth/README.md) is the worked example: five pages of
-design, one page of verified reality, and you cannot confuse them.
+security incident. [modules/auth/](modules/auth/README.md) is the worked example: every page opens
+with its status, so the pages that describe built code and the pages that describe target design
+(`authorization.md`, `data-model.md`) cannot be confused. A page that mixes both marks each section.
 
 ### 3. Write for a competent stranger
 
@@ -68,8 +72,8 @@ Assume a good engineer who has never seen this repo, and assume English may be t
 language.
 
 - Short sentences. One idea each.
-- Expand a term the first time it appears: "an *epoch* — a counter we bump to invalidate every
-  token a user holds".
+- Expand a term the first time it appears: "the *sid* — the session id, the first half of the
+  cookie token".
 - Prefer the plain word: "overwrites" over "clobbers", "check" over "assert against".
 - No unexplained acronyms. RBAC, TTL, CSRF and ESR each get a clause the first time.
 - If a paragraph needs re-reading to parse, rewrite it. That is a defect, not the reader's problem.
@@ -82,7 +86,8 @@ Every non-obvious rule earns its place with a concrete scenario — real actors,
 > phone. The phone login overwrites the row's token, so her laptop is silently logged out
 > mid-task.
 
-That sentence teaches the bug. "Sessions are not per-device" does not. This matters more here than
+(That was a real bug in the inherited code, fixed by per-device sessions.) That sentence teaches
+the bug. "Sessions are not per-device" does not. This matters more here than
 in a normal repo, because this code is copied into projects by people who were not in the design
 conversation.
 

@@ -8,7 +8,8 @@ import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
 import response from '@utils/response';
 import { toObjectId } from '@utils/mongoHelper';
-import { sendEmail, templates } from '@notification/email';
+import { sendEmail } from '@notification/index';
+import * as templates from '@referral/helpers/emailTemplates';
 
 const list = catchAsync(async (req, res) => {
   const userId = toObjectId(req.user!._id);
@@ -78,7 +79,7 @@ const TEMP_PASSWORD_CHARS =
   "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
 
 const registerOnboard = catchAsync(async (req, res) => {
-  const { email, firstName, lastName, phone, role } = req.body;
+  const { email, firstName, lastName, phone, role } = req.body ?? {};
 
   if (![ROLE_CODE.VENDOR, ROLE_CODE.CUSTOMER].includes(role)) {
     throw ApiError.badRequest("Role must be VENDOR or CUSTOMER");
@@ -98,7 +99,7 @@ const registerOnboard = catchAsync(async (req, res) => {
     throw ApiError.conflict('That email already has an account.', 'EMAIL_ALREADY_EXISTS');
   }
 
-  // A real emailed credential: randomInt for the same reason as generateOTP.
+  // A real emailed credential: randomInt for the same reason as generateOtp.
   const password = Array.from(
     { length: 12 },
     () => TEMP_PASSWORD_CHARS[randomInt(0, TEMP_PASSWORD_CHARS.length)],

@@ -1,15 +1,10 @@
 import { randomInt } from 'node:crypto';
-import { setKey, getKey, delKey, incrementKey, incrementWithTTL, getTTL, identifierHash } from '@utils/redisKeys';
+import { setKey, getKey, delKey, incrementKey, incrementWithTTL, getTTL, identifierHash, otpKey } from '@utils/redisKeys';
 import { envConfig } from '@config/env';
 import { logger } from '@utils/logger';
 import { errorMessage } from '@utils/format';
 
-type OtpKeyPart = 'code' | 'attempts' | 'send_count';
-
-const otpKey = (purpose: OtpPurpose, email: string, part: OtpKeyPart): string =>
-  `otp:${purpose}:${identifierHash(email)}:${part}`;
-
-interface OTPKeys {
+interface OtpKeys {
   code: string;
   attempts: string;
   sendCount: string;
@@ -27,25 +22,10 @@ export const OTP_RESULT = {
   LOCKED: 'locked',
 } as const;
 
-type OTPVerifyResult =
+type OtpVerifyResult =
   | { status: typeof OTP_RESULT.VALID | typeof OTP_RESULT.EXPIRED }
   | { status: typeof OTP_RESULT.WRONG; remainingAttempts: number }
   | { status: typeof OTP_RESULT.LOCKED; waitSeconds: number | null };
-
-const otpKeys = (purpose: OtpPurpose, email: string): OTPKeys => ({
-  code: otpKey(purpose, email, 'code'),
-  attempts: otpKey(purpose, email, 'attempts'),
-  sendCount: otpKey(purpose, email, 'send_count'),
-});
-
-export function generateOTP(): string {
-  const length = envConfig.OTP.LENGTH;
-  // randomInt, not Math.random: this gates password reset, and V8's PRNG is
-  // reconstructable from a few observed outputs.
-  let otp = "";
-  for (let i = 0; i < length; i++) otp += String(randomInt(0, 10));
-  return otp;
-}
 
 export const OTP_PURPOSE = {
   VERIFY_EMAIL: 'verify_email',
@@ -53,6 +33,21 @@ export const OTP_PURPOSE = {
 } as const;
 
 type OtpPurpose = (typeof OTP_PURPOSE)[keyof typeof OTP_PURPOSE];
+
+const otpKeys = (purpose: OtpPurpose, email: string): OtpKeys => ({
+  code: otpKey(purpose, email, 'code'),
+  attempts: otpKey(purpose, email, 'attempts'),
+  sendCount: otpKey(purpose, email, 'send_count'),
+});
+
+export function generateOtp(): string {
+  const length = envConfig.OTP.LENGTH;
+  // randomInt, not Math.random: this gates password reset, and V8's PRNG is
+  // reconstructable from a few observed outputs.
+  let otp = "";
+  for (let i = 0; i < length; i++) otp += String(randomInt(0, 10));
+  return otp;
+}
 
 const waitFrom = (ttl: number): number | null => (ttl > 0 ? ttl : null);
 
@@ -79,7 +74,7 @@ export async function checkSendRateLimit(email: string, purpose: OtpPurpose): Pr
   }
 }
 
-export async function storeOTP(email: string, otp: string, purpose: OtpPurpose): Promise<void> {
+export async function storeOtp(email: string, otp: string, purpose: OtpPurpose): Promise<void> {
   const keys = otpKeys(purpose, email);
   const ttlSeconds = envConfig.OTP.EXPIRY_MINUTES * 60;
 
@@ -88,12 +83,12 @@ export async function storeOTP(email: string, otp: string, purpose: OtpPurpose):
   await incrementWithTTL([keys.sendCount], envConfig.OTP.SEND.WINDOW_MINUTES * 60);
 }
 
-export async function verifyOTP(email: string, otp: string, purpose: OtpPurpose): Promise<OTPVerifyResult> {
+export async function verifyOtp(email: string, otp: string, purpose: OtpPurpose): Promise<OtpVerifyResult> {
   const maxAttempts = envConfig.OTP.VERIFY.MAX_ATTEMPTS;
   const keys = otpKeys(purpose, email);
 
-  const storedOTP = await getKey(keys.code);
-  if (!storedOTP) return { status: OTP_RESULT.EXPIRED };
+  const storedOtp = await getKey(keys.code);
+  if (!storedOtp) return { status: OTP_RESULT.EXPIRED };
 
   // Counted before comparing, from INCR's own reply: parallel guesses that read the
   // count first would all see the same value and overrun the cap together.
@@ -101,14 +96,14 @@ export async function verifyOTP(email: string, otp: string, purpose: OtpPurpose)
   if (attempts > maxAttempts) {
     return { status: OTP_RESULT.LOCKED, waitSeconds: waitFrom(await getTTL(keys.attempts)) };
   }
-  if (storedOTP === otp) return { status: OTP_RESULT.VALID };
+  if (storedOtp === otp) return { status: OTP_RESULT.VALID };
   if (attempts === maxAttempts) {
     return { status: OTP_RESULT.LOCKED, waitSeconds: waitFrom(await getTTL(keys.attempts)) };
   }
   return { status: OTP_RESULT.WRONG, remainingAttempts: maxAttempts - attempts };
 }
 
-export async function clearOTPKeys(email: string, purpose: OtpPurpose): Promise<void> {
+export async function clearOtpKeys(email: string, purpose: OtpPurpose): Promise<void> {
   const keys = otpKeys(purpose, email);
   await Promise.all([delKey(keys.code), delKey(keys.attempts)]);
 }

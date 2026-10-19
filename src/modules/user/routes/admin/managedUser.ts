@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { makeManagedUserController, type ManagedUserLabels } from '@user/controllers/admin/managedUser';
-import { authenticate, authorizeRoles } from '@middlewares/authenticate';
+import { authenticate, authorizeRoles } from '@auth/index';
 import { ROLE_CODE, type RoleCode } from '@user/models/Role';
 import { uploadSingle } from '@user/helpers/upload';
 import { validate } from '@middlewares/validate';

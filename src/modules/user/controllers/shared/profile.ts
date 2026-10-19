@@ -8,7 +8,8 @@ import { applyProfileFields } from '@user/helpers/profileFields';
 import { updateImage, deleteImage } from '@user/helpers/image';
 
 export const getProfile = catchAsync(async (req, res) => {
-  const user = (await User.findById(req.user!._id).lean())!;
+  const user = await User.findById(req.user!._id).lean();
+  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
 
   return response.success(res, {
     user: {
@@ -26,7 +27,8 @@ export const getProfile = catchAsync(async (req, res) => {
 
 export const updateProfile = catchAsync(async (req, res) => {
   const { fullName, phoneNumber, dateOfBirth } = req.body;
-  const user = (await User.findById(req.user!._id))!;
+  const user = await User.findById(req.user!._id);
+  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
 
   applyProfileFields(user, { fullName, phoneNumber, dateOfBirth });
 
@@ -36,12 +38,13 @@ export const updateProfile = catchAsync(async (req, res) => {
   return response.success(res, null, 200, 'Profile updated successfully.');
 });
 
-export const uploadImage = catchAsync(async (req, res) => {
+export const uploadProfileImage = catchAsync(async (req, res) => {
   if (!req.file) {
     throw ApiError.badRequest('No file uploaded.', 'NO_FILE');
   }
 
-  const user = (await User.findById(req.user!._id))!;
+  const user = await User.findById(req.user!._id);
+  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
   user.profileImage = await updateImage(req.file, user.profileImage);
   await user.save();
   await syncSessionUser(String(user._id), user);
@@ -50,7 +53,8 @@ export const uploadImage = catchAsync(async (req, res) => {
 });
 
 export const deleteProfileImage = catchAsync(async (req, res) => {
-  const user = (await User.findById(req.user!._id))!;
+  const user = await User.findById(req.user!._id);
+  if (!user) throw ApiError.notFound('User not found', 'USER_NOT_FOUND');
 
   if (!user.profileImage) {
     throw ApiError.badRequest('No profile image to delete.', 'NO_PROFILE_IMAGE');

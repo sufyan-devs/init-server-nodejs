@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer';
 import { envConfig } from '@config/env';
 import { logger } from '@utils/logger';
+import { errorMessage } from '@utils/format';
+import { identifierHash } from '@utils/redisKeys';
 
 interface SendEmailOptions {
   to: string;
@@ -20,6 +22,7 @@ const transporter = nodemailer.createTransport({
 });
 
 const sendEmail = ({ to, subject, html, type = 'email' }: SendEmailOptions): void => {
+  const recipient = identifierHash(to);
   transporter
     .sendMail({
       from: envConfig.EMAIL.FROM,
@@ -28,13 +31,13 @@ const sendEmail = ({ to, subject, html, type = 'email' }: SendEmailOptions): voi
       html,
     })
     .then(() => {
-      logger.info('Email sent', { to, type, subject });
+      logger.info('Email sent', { recipient, type, subject });
     })
-    .catch((error: Error) => {
+    .catch((error: unknown) => {
       logger.error('Failed to send email', {
-        to,
+        recipient,
         type,
-        error: error.message,
+        error: errorMessage(error),
       });
     });
 };

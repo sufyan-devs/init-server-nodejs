@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { getProfile } from '../../controllers/customer/profile';
-import { updateProfile, uploadImage, deleteProfileImage } from '../../controllers/shared/profile';
-import { authenticate, authorizeRoles } from '@middlewares/authenticate';
+import { getProfile } from '@user/controllers/customer/profile';
+import { updateProfile, uploadProfileImage, deleteProfileImage } from '@user/controllers/shared/profile';
+import { authenticate, authorizeRoles } from '@auth/index';
 import { ROLE_CODE } from '@user/models/Role';
 import { uploadSingle } from '@user/helpers/upload';
 import { validate } from '@middlewares/validate';
@@ -13,7 +13,7 @@ const requireCustomer = [authenticate(ROLE_CODE.CUSTOMER), authorizeRoles(ROLE_C
 
 router.get('/', ...requireCustomer, getProfile);
 router.put('/', ...requireCustomer, validate({ body: updateProfileSchema }), updateProfile);
-router.post('/image', ...requireCustomer, uploadSingle('file'), uploadImage);
+router.post('/image', ...requireCustomer, uploadSingle('file'), uploadProfileImage);
 router.delete('/image', ...requireCustomer, deleteProfileImage);
 
 export default router;

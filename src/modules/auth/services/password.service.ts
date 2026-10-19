@@ -6,11 +6,12 @@ import User, { USER_STATUS } from '@user/models/User';
 import type { IUser } from '@user/models/User';
 import lockout from '@auth/services/lockout.service';
 import ApiError from '@utils/apiError';
-import AuthErrors from '@constants/authErrors';
+import AUTH_ERRORS from '@constants/authErrors';
 import { envConfig } from '@config/env';
 import { logger } from '@utils/logger';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 import { errorMessage } from '@utils/format';
+import { identifierHash } from '@utils/redisKeys';
 
 const ARGON2_OPTIONS = {
   type: argon2.argon2id,
@@ -60,14 +61,14 @@ const upgradeHash = (userId: string, password: string): void => {
 };
 
 const invalidCredentials = (email: string, reason: string, actorId?: string): ApiError => {
-  logger.warn('Login rejected', { email, reason });
+  logger.warn('Login rejected', { email: identifierHash(email), reason });
   void record({
     actorId,
     action: AUDIT_ACTION.LOGIN_FAILURE,
     outcome: AUDIT_OUTCOME.FAILURE,
     meta: { email, reason },
   });
-  return ApiError.fromAuthError(401, AuthErrors.INVALID_CREDENTIALS);
+  return ApiError.fromAuthError(AUTH_ERRORS.INVALID_CREDENTIALS);
 };
 
 const verifyPassword = async (email: string, password: string): Promise<IUser> => {
@@ -117,8 +118,8 @@ const assertPasswordAllowed = async (password: string): Promise<void> => {
   const { MIN_LENGTH, HIBP_CHECK } = envConfig.PASSWORD;
 
   if (password.length < MIN_LENGTH) {
-    throw new ApiError(400, `Password must be at least ${MIN_LENGTH} characters.`, {
-      code: AuthErrors.PASSWORD_TOO_WEAK.code,
+    throw new ApiError(AUTH_ERRORS.PASSWORD_TOO_WEAK.status, `Password must be at least ${MIN_LENGTH} characters.`, {
+      code: AUTH_ERRORS.PASSWORD_TOO_WEAK.code,
     });
   }
   if (!HIBP_CHECK) return;
@@ -136,13 +137,11 @@ const assertPasswordAllowed = async (password: string): Promise<void> => {
 
   if (breached) {
     throw new ApiError(
-      400,
+      AUTH_ERRORS.PASSWORD_TOO_WEAK.status,
       'This password has appeared in a data breach. Please choose a different one.',
-      { code: AuthErrors.PASSWORD_TOO_WEAK.code },
+      { code: AUTH_ERRORS.PASSWORD_TOO_WEAK.code },
     );
   }
 };
 
 export { verifyPassword, assertPasswordAllowed, dummyVerify, hashPassword };
-
-export default { verifyPassword, assertPasswordAllowed };

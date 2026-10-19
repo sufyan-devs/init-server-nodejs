@@ -4,6 +4,7 @@ import {
   setKey,
   setKeyKeepTtl,
   getKey,
+  getKeyWithTtl,
   delKey,
   getTTL,
   expireKey,
@@ -12,7 +13,7 @@ import {
   getSetMembers,
 } from '@utils/redisKeys';
 import { logger } from '@utils/logger';
-import type { SessionRecord, SessionRepo } from './types';
+import type { SessionRecord } from './types';
 import { errorMessage } from '@utils/format';
 
 const TTL_REFRESH_FRACTION = 0.5;
@@ -22,6 +23,11 @@ const CREATED_AT_UNKNOWN = 0;
 interface SessionIndexEntry {
   sid: string;
   raw: string;
+}
+
+interface FoundSession {
+  session: SessionRecord;
+  ttlSeconds: number;
 }
 
 interface SessionIndex {
@@ -87,8 +93,12 @@ const saveFields = async (session: SessionRecord): Promise<void> => {
   await setKeyKeepTtl(sessionKey(session.sid), JSON.stringify(session));
 };
 
-const findBySid = async (sid: string): Promise<SessionRecord | null> =>
-  parseSession(await getKey(sessionKey(sid)), sid);
+// GET and TTL in one MULTI on one key: the hot path stays a single round trip.
+const findBySid = async (sid: string): Promise<FoundSession | null> => {
+  const { value, ttlSeconds } = await getKeyWithTtl(sessionKey(sid));
+  const session = parseSession(value, sid);
+  return session ? { session, ttlSeconds } : null;
+};
 
 const findManyBySids = async (sids: string[]): Promise<Array<SessionRecord | null>> => {
   const values = await readRawSessions(sids);
@@ -112,18 +122,17 @@ const deleteAllForUser = async (userId: string): Promise<void> => {
   await Promise.all([...sids.map((sid) => delKey(sessionKey(sid))), delKey(setKeyName)]);
 };
 
-const refreshTtlIfStale = async (sid: string, ttlSeconds: number): Promise<void> => {
-  if (ttlSeconds <= 0) return;
+const refreshIfStale = async (
+  session: SessionRecord,
+  remainingSeconds: number,
+  ttlSeconds: number,
+): Promise<void> => {
+  if (ttlSeconds <= 0 || remainingSeconds < 0) return;
+  if (remainingSeconds >= ttlSeconds * TTL_REFRESH_FRACTION) return;
 
-  const key = sessionKey(sid);
-  const remaining = await getTTL(key);
-  if (remaining < 0) return;
-  if (remaining >= ttlSeconds * TTL_REFRESH_FRACTION) return;
-
-  await expireKey(key, ttlSeconds);
-
-  const session = await findBySid(sid);
-  if (!session) return;
+  // EXPIRE, not a rewrite: re-saving the record read at the start of the request would
+  // undo a role switch or profile sync that landed in between.
+  await expireKey(sessionKey(session.sid), ttlSeconds);
   await extendAtLeast(userSessionsKey(session.userId), ttlSeconds);
 };
 
@@ -155,7 +164,7 @@ const pruneToLimit = async (userId: string, max: number): Promise<string[]> => {
   return evicted;
 };
 
-const sessionRepo: SessionRepo = {
+const sessionRepo = {
   save,
   findBySid,
   findManyBySids,
@@ -163,7 +172,7 @@ const sessionRepo: SessionRepo = {
   listSidsByUser,
   deleteAllForUser,
   saveFields,
-  refreshTtlIfStale,
+  refreshIfStale,
   pruneToLimit,
 };
 

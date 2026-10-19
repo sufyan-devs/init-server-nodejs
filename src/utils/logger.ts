@@ -7,8 +7,9 @@ interface RequestContextStore {
   requestId?: string;
   method?: string;
   url?: string;
-  [key: string]: unknown;
 }
+
+const LOG_FILE_MAX_BYTES = 5 * 1024 * 1024;
 
 const requestContext = new AsyncLocalStorage<RequestContextStore>();
 
@@ -55,12 +56,13 @@ const logger: Logger = createLogger({
     new transports.Console(),
     ...(envConfig.IN_PROD
       ? [
-          new transports.File({ filename: 'logs/error.log', level: 'error', maxsize: 5242880, maxFiles: 5 }),
-          new transports.File({ filename: 'logs/combined.log', maxsize: 5242880, maxFiles: 5 }),
+          new transports.File({ filename: 'logs/error.log', level: 'error', maxsize: LOG_FILE_MAX_BYTES, maxFiles: 5 }),
+          new transports.File({ filename: 'logs/combined.log', maxsize: LOG_FILE_MAX_BYTES, maxFiles: 5 }),
         ]
       : []),
   ],
   exitOnError: false,
 });
 
-export { logger, requestContext, getRequestContext };
+export { logger, requestContext };
+export type { RequestContextStore };

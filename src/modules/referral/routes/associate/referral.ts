@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import * as onboardController from '../../controllers/associate/onboard';
-import * as couponController from '../../controllers/associate/coupon';
-import { authenticate, authorizeRoles } from '@middlewares/authenticate';
+import * as onboardController from '@referral/controllers/associate/onboard';
+import * as couponController from '@referral/controllers/associate/coupon';
+import { authenticate, authorizeRoles } from '@auth/index';
 import { ROLE_CODE } from '@user/models/Role';
 
 const router = Router();

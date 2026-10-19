@@ -1,33 +1,41 @@
 # Rate limiting
 
-> **Runtime-verified 2026-09-01**: the login bucket returned 429 after repeated attempts from one IP,
-> and counters were observed in Redis as `rl:login:ip:<ip>`. **Not exercised:** the account-scoped OTP
-> buckets, or fail-open behaviour with Redis down. No production build has been run.
+> **Verified against the code on 2026-10-19.** Runtime check on 2026-09-01: the login bucket
+> returned 429 after repeated attempts from one IP. **Not exercised:** the account-scoped OTP
+> buckets, or fail-open behaviour with Redis down.
 
-Our own layer, in `src/middlewares/rateLimit.ts`. No third-party package: the logic is about
-fifteen lines of Redis, and owning it means the limiter can share the connection, the key
-convention and the failure policy with everything else.
+Our own layer: the middleware is `src/middlewares/rateLimit.ts` and the counter is
+`incrementWithTTL` in `src/utils/redisKeys.ts:124-168`. No third-party package — owning it means
+the limiter shares the Redis connection, the key convention and the failure policy with everything
+else.
 
 ---
 
 ## The algorithm
 
-Fixed window, one counter per bucket per identifier.
+Fixed window, one counter per bucket per identifier. Each counter is one `MULTI` on one key
+(`redisKeys.ts:133-140`):
 
 ```
-INCR   rl:<bucket>:<identifier>
-EXPIRE rl:<bucket>:<identifier> <window> NX
-TTL    rl:<bucket>:<identifier>
+INCR   rl:<bucket>:<scope>:<hash>
+EXPIRE rl:<bucket>:<scope>:<hash> <window> NX
+TTL    rl:<bucket>:<scope>:<hash>
 ```
 
-All three commands, for every identifier being checked, go into **one pipelined round trip**. The
-limiter runs in front of every request, so its own cost matters more than what it protects — three
-sequential awaits per counter would make the guard more expensive than the thing guarded.
+`<scope>` is `ip` or `acct`, and `<hash>` is the identifier, trimmed, lowercased, SHA-256'd and cut
+to 32 hex characters (`redisKeys.ts:18-23`, `38-39`). Why the hash: see [redis.md](redis.md#key-map).
 
-**`NX` is load-bearing.** It sets the expiry only when the key has none. An unconditional `EXPIRE`
-would push the reset forward on every hit, so a client hammering a blocked endpoint would keep
-renewing its own block and never get out. It also self-heals a counter that somehow lost its TTL,
-so a counter can never become a permanent lockout.
+When a bucket checks two identifiers (IP and account), it sends two `MULTI`s at once with
+`Promise.all` (`redisKeys.ts:156-168`). It does not put both keys in one `MULTI`: on a Redis
+Cluster the two keys can sit in different hash slots, and a multi-key `MULTI` is then a `CROSSSLOT`
+error (`redisKeys.ts:131-132`). The same comment records why this is still cheap: node-redis
+flushes commands issued in the same tick as one socket write. The request is judged by whichever
+counter is highest (`rateLimit.ts:79-80`).
+
+**`NX` is load-bearing.** It sets the expiry only when the key has none (`redisKeys.ts:136-138`).
+An unconditional `EXPIRE` would push the reset forward on every hit, so a client hammering a blocked
+endpoint would keep renewing its own block and never get out. It also self-heals a counter that
+somehow lost its TTL, so a counter can never become a permanent lockout. It needs Redis 7.0+.
 
 ### Why fixed window, knowing its flaw
 
@@ -50,13 +58,22 @@ boundary, or a metered endpoint where a 2× overrun costs real money. Then it is
 
 | Bucket | Limited by | Default | Where |
 |---|---|---|---|
-| `global` | IP | 300 / 60s | all of `/api/v1` |
+| `global` | IP | 300 / 60s | every request except `GET /health` and files served from `/uploads` (`src/server.ts:75-95`) |
+| `static` | IP | same numbers as `global` | `/uploads` (`src/server.ts:87-91`) |
 | `login` | IP | 30 / 15min | `/login`, `/oauth/:provider` |
 | `register` | IP | 10 / hour | `/register` |
 | `otp` | IP **and** account | 10 / hour | `/send-otp`, `/forgot-password` |
 | `otp-verify` | IP **and** account | 10 / hour | `/verify-otp`, `/verify-email`, `/reset-password` |
 
-All tunable via `RATE_LIMIT_*` env vars — see [configuration.md](configuration.md).
+Defaults are in `src/config/env.ts:251-269`; buckets are defined in
+`src/modules/auth/routes/shared/limits.ts` and applied in each portal's `routes/<portal>/auth.ts`.
+The admin portal has no `/register`, `/send-otp` or `/verify-email`
+(`src/modules/auth/routes/admin/auth.ts:14-23`). All numbers are tunable via `RATE_LIMIT_*` — see
+[configuration.md](configuration.md).
+
+"Account" is the `email` field of the request body (`rateLimit.ts:13`, `43-47`). The limiter runs
+before `validate`, so it sees the raw value; the hash lowercases and trims it first, so one capital
+letter does not buy a fresh allowance.
 
 ### Why these numbers, and why login is per-IP only
 
@@ -72,46 +89,62 @@ So the two axes are split, each doing the job it is actually good at:
 
 | Control | Keyed on | Stops | Default |
 |---|---|---|---|
-| **Lockout** | user id | brute force against **one account**, from anywhere | 5 fails / 15 min |
+| **Lockout** | user id | brute force against **one account**, from anywhere | 5 fails / 15 min (`env.ts:274-278`) |
 | **Rate limit** | IP | one host spraying **many accounts** | 30 / 15 min |
 
 The strict OWASP number lives in the lockout, where it belongs, and the IP limit stays loose enough
 not to punish shared addresses. Two account-scoped controls would be worse than one: whichever
 tripped first would be the only one that ever fired.
 
-`otp` keeps its account counter because there is no OTP lockout, and because each request costs an
-outbound email.
+### OTP has three layers
 
-**`otp-verify` is a separate bucket from `otp` on purpose.** Sharing one would mean a wrong guess
-consumes the allowance for requesting a fresh code — so a user who fat-fingers the digits gets
-locked out of the retry that would have fixed it. Both draw their numbers from `RATE_LIMIT_OTP_*`;
-they just count independently.
+| Layer | Counts | Default | Where |
+|---|---|---|---|
+| `otp` / `otp-verify` buckets | requests per IP and per email address | 10 / hour each | the route limiter |
+| send cap | codes sent per email and purpose | 5 per 60 min (`OTP_SEND_*`) | `src/modules/auth/helpers/otp.ts:54-75`, counted at `83` |
+| verify cap | wrong guesses per code | 5 (`OTP_VERIFY_MAX_ATTEMPTS`), then locked until the code expires | `otp.ts:86-104` |
 
-The account identifier is normalised (trimmed, lowercased) before hashing — otherwise one capital
-letter buys a fresh allowance — then SHA-256 truncated, which bounds key size and keeps raw email
-addresses out of Redis and out of logs.
+The route buckets stop a client before the handler does any work. The send cap runs inside the
+handler, after a database lookup (`src/modules/auth/controllers/shared/passwordReset.ts:27-29`).
+
+**`otp-verify` is a separate bucket from `otp` on purpose** (`limits.ts:22-28`). Sharing one would
+mean a wrong guess consumes the allowance for requesting a fresh code — so a user who fat-fingers
+the digits gets locked out of the retry that would have fixed it. Both draw their numbers from
+`RATE_LIMIT_OTP_*`; they just count independently.
 
 ---
 
 ## Response headers
 
-Every response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`, not only
-rejections, so a client can back off before being blocked. A 429 also carries `Retry-After`.
+When a limiter runs, it sets `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` on the
+response, allowed or not (`rateLimit.ts:82-86`, `118`), so a client can back off before being
+blocked. A 429 also carries `Retry-After` (`rateLimit.ts:125`) and the error code
+`AUTH_RATE_LIMIT_EXCEEDED` (`src/constants/authErrors.ts:58-62`).
 
-The `TTL` read that makes `Reset` accurate is in the same pipeline as the `INCR`, so accuracy costs
-no extra round trip.
+The headers are **absent** when no limiter ran: on `GET /health`, when `RATE_LIMIT_ENABLED=false`
+(`rateLimit.ts:92-95`), when Redis failed (`98-108`), or when the request had no IP
+(`110-114`). On a route with its own bucket, that bucket's values overwrite the global ones, because
+both use `setHeader`.
+
+The `TTL` that makes `Reset` accurate is in the same `MULTI` as the `INCR`, so accuracy costs no
+extra round trip.
 
 ---
 
 ## It fails open, and that is deliberate
 
-If Redis is unreachable the limiter **logs an error and lets the request through**.
+If Redis is unreachable the limiter **logs an error and lets the request through**
+(`rateLimit.ts:100-108`).
 
 A limiter that fails closed converts a cache outage into a total product outage — every user
 blocked because a counter could not be read. The exposure while Redis is down is a window of
 unthrottled traffic; the alternative is a guaranteed full outage. For the same reason, a malformed
-Redis reply is treated as a failure rather than coerced to zero: a count of zero reads as an empty
-counter, which would silently disable the limit instead of noisily bypassing it.
+Redis reply is treated as a failure rather than coerced to zero (`redisKeys.ts:142-152`): a count of
+zero reads as an empty counter, which would silently disable the limit instead of noisily
+bypassing it.
+
+The OTP send cap is the exception: it fails **closed** (`otp.ts:64-73`), because sends it cannot
+count would be unbounded outbound email.
 
 **This is a security trade-off, not an oversight.** If a deployment needs auth endpoints to fail
 closed while the rest stays open, that is a per-bucket policy flag — ask before assuming.
@@ -121,11 +154,13 @@ closed while the rest stays open, that is a per-bucket policy flag — ask befor
 ## Known gaps
 
 **Per-account limiting is itself a denial-of-service vector.** An attacker who knows a victim's
-email can burn their counter and lock them out. The standard mitigation is counting only *failed*
-attempts, which needs a post-handler hook. Accepted for now; revisit if abuse appears.
+email can burn their `otp` counter, or their lockout (open question 4 in
+[../decisions.md](../decisions.md)). Accepted for now; revisit if abuse appears.
 
-**Client IP.** The limiter uses `req.ip`, which respects the `trust proxy` hop count set in
-`server.ts`. It deliberately does **not** use `@utils/clientIp`, which reads `X-Forwarded-For` and
-friends straight off the request — those are attacker-controlled, so keying a limiter on them means
-rotating a header value buys a fresh allowance. That helper is still used by the logger and error
-middleware, so **logged IPs are attacker-controlled and should not be acted on** until it is fixed.
+**Client IP depends on `TRUSTED_PROXY_COUNT`.** The limiter keys on `req.ip`
+(`rateLimit.ts:41`). In production `trust proxy` is set to `TRUSTED_PROXY_COUNT`, default 1
+(`src/server.ts:28-30`, `src/config/env.ts:179`); outside production it is not set, and `req.ip` is
+the socket address. **Real world:** behind a load balancer *and* a CDN, a count of 1 makes every
+visitor look like the CDN edge, so one busy edge node exhausts the global allowance for everyone
+behind it. A count higher than the real number of proxies lets a client pick its own IP by sending
+`X-Forwarded-For`, and with it a fresh allowance per request.

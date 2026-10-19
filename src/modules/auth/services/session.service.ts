@@ -11,15 +11,15 @@ import type {
   SessionInvalidReason,
   SessionRecord,
   SessionRevokeReason,
-  SessionService,
   SessionUser,
   VerifySessionResult,
 } from '@auth/models/Session';
 import { envConfig } from '@config/env';
-import AuthErrors from '@constants/authErrors';
+import AUTH_ERRORS from '@constants/authErrors';
 import ApiError from '@utils/apiError';
 import { logger } from '@utils/logger';
-import { setKey, getKey, delKey } from '@utils/redisKeys';
+import { setKey, getKey, delKey, resetSessionKey } from '@utils/redisKeys';
+import { portalOf } from '@utils/cookieHelper';
 import { errorMessage } from '@utils/format';
 
 const TOKEN_SEPARATOR = '.';
@@ -29,8 +29,6 @@ const SECRET_BYTES = 32;
 const RESET_ID_BYTES = 32;
 const MS_PER_SECOND = 1000;
 const RESET_TTL_SECONDS = envConfig.PASSWORD_RESET.SESSION_EXPIRY_MINUTES * 60;
-
-const resetSessionKey = (resetId: string): string => `reset_session:${resetId}`;
 
 const randomBytesAsync = promisify(randomBytes);
 
@@ -71,12 +69,12 @@ const absoluteDeadline = (session: SessionRecord): number =>
   session.createdAt + envConfig.SESSION.ABSOLUTE_MAX_MS;
 
 // Fire-and-forget: the hot path never waits, and the repo writes only when half the TTL is gone.
-const touchTtl = (session: SessionRecord): void => {
+const touchTtl = (session: SessionRecord, remainingSeconds: number): void => {
   const untilDeadline = Math.floor(
     (absoluteDeadline(session) - Date.now()) / MS_PER_SECOND,
   );
   void sessionRepo
-    .refreshTtlIfStale(session.sid, Math.min(sessionTtlSeconds(), untilDeadline))
+    .refreshIfStale(session, remainingSeconds, Math.min(sessionTtlSeconds(), untilDeadline))
     .catch((error: unknown) => {
       logger.warn('Session TTL refresh failed', { sid: session.sid, error: errorMessage(error) });
     });
@@ -152,15 +150,18 @@ const createSession = async (input: CreateSessionInput): Promise<CreatedSession>
 
 const sidFromToken = (token: string): string => token.split(TOKEN_SEPARATOR)[0];
 
-const verifySessionToken = async (token: string): Promise<VerifySessionResult> => {
+// A token copied into another portal's cookie must not authenticate there.
+const verifySessionToken = async (token: string, roleCode: string): Promise<VerifySessionResult> => {
   const parts = (token || '').split(TOKEN_SEPARATOR);
   if (parts.length !== TOKEN_PART_COUNT) return invalid(SESSION_INVALID_REASON.MALFORMED);
 
   const [sid, secret] = parts;
   if (!sid || !secret) return invalid(SESSION_INVALID_REASON.MALFORMED);
 
-  const session = await sessionRepo.findBySid(sid);
-  if (!session) return invalid(SESSION_INVALID_REASON.NOT_FOUND);
+  const found = await sessionRepo.findBySid(sid);
+  if (!found) return invalid(SESSION_INVALID_REASON.NOT_FOUND);
+
+  const { session, ttlSeconds } = found;
   if (!digestsMatch(sha256Hex(secret), session.secretHash)) {
     logger.warn('Session secret mismatch', { sid, userId: session.userId });
     return invalid(SESSION_INVALID_REASON.SECRET_MISMATCH);
@@ -169,8 +170,12 @@ const verifySessionToken = async (token: string): Promise<VerifySessionResult> =
     dropExpired(sid, session.userId);
     return invalid(SESSION_INVALID_REASON.EXPIRED_ABSOLUTE);
   }
+  if (portalOf(session.portal) !== portalOf(roleCode)) {
+    logger.warn('Session presented on another portal', { sid, portal: session.portal, roleCode });
+    return invalid(SESSION_INVALID_REASON.PORTAL_MISMATCH);
+  }
 
-  touchTtl(session);
+  touchTtl(session, ttlSeconds);
   return { valid: true, session };
 };
 
@@ -184,9 +189,9 @@ const revokeSession = async (
 };
 
 const revokeOwnSession = async (sid: string, userId: string): Promise<void> => {
-  const session = await sessionRepo.findBySid(sid);
-  if (!session || session.userId !== userId) {
-    throw ApiError.fromAuthError(404, AuthErrors.SESSION_NOT_FOUND);
+  const found = await sessionRepo.findBySid(sid);
+  if (!found || found.session.userId !== userId) {
+    throw ApiError.notFound(AUTH_ERRORS.SESSION_NOT_FOUND.message, AUTH_ERRORS.SESSION_NOT_FOUND.code);
   }
   await revokeSession(sid, userId);
 };
@@ -220,12 +225,13 @@ const switchActiveRole = async (
   availableRoles: string[],
 ): Promise<SessionRecord> => {
   if (!availableRoles.includes(newRole)) {
-    throw ApiError.fromAuthError(403, AuthErrors.ROLE_SWITCH_DENIED);
+    throw ApiError.fromAuthError(AUTH_ERRORS.ROLE_SWITCH_DENIED);
   }
 
-  const session = await sessionRepo.findBySid(sid);
-  if (!session) throw ApiError.fromAuthError(401, AuthErrors.SESSION_NOT_FOUND);
+  const found = await sessionRepo.findBySid(sid);
+  if (!found) throw ApiError.fromAuthError(AUTH_ERRORS.SESSION_NOT_FOUND);
 
+  const { session } = found;
   const updated: SessionRecord = {
     ...session,
     activeRole: newRole,
@@ -233,7 +239,7 @@ const switchActiveRole = async (
     lastSeenAt: Date.now(),
   };
 
-  await sessionRepo.save(updated, sessionTtlSeconds());
+  await sessionRepo.saveFields(updated);
   logger.info('Session role switched', {
     sid,
     userId: session.userId,
@@ -270,7 +276,7 @@ const clearResetSession = async (resetId: string): Promise<void> => {
   await delKey(resetSessionKey(resetId));
 };
 
-const sessionService: SessionService = {
+const sessionService = {
   createSession,
   verifySessionToken,
   revokeSession,

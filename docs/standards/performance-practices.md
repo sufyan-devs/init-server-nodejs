@@ -1,5 +1,7 @@
 # High-Traffic Performance Practices (stack-agnostic)
 
+> **§1–§10 are principles, not a description of code. §11 is verified against the code on 2026-10-19.**
+>
 > **The third companion file.**
 > [project-structure.md](project-structure.md) = *where code goes.*
 > [coding-practices.md](coding-practices.md) = *how to write clean code.*
@@ -9,8 +11,9 @@
 > PostgreSQL, MySQL, SQL Server, Cassandra…), **any** ORM/driver (Mongoose, Prisma,
 > TypeORM, Sequelize, Drizzle, raw SQL), and **any** framework (Express, NestJS,
 > Fastify) or topology (monolith or microservices). The *idea* is the same
-> everywhere; only the *syntax* differs. Each rule shows the **SQL** and the
-> **NoSQL/Mongo** form side by side. Sources at the bottom.
+> everywhere; only the *syntax* differs. Rules about queries show the **SQL** and the
+> **MongoDB** form side by side. This project runs MongoDB + Mongoose today; PostgreSQL + Prisma
+> is the target and is not built. Where to confirm exact syntax is at the bottom.
 
 ---
 
@@ -96,8 +99,8 @@ Universal anti-pattern; every ORM has a name and a fix for it.
 
 ## 3. Paginate & filter BEFORE you JOIN — stage/clause order is everything
 
-This is the thing you asked about, and it's universal. If the join runs before the
-limit, you join the *whole* table and throw 99% away.
+This holds on every engine. If the join runs before the limit, you join the *whole* table and
+throw 99% away.
 
 ```
 ❌ join everything, then keep 20  (full scan, huge waste — SQL & Mongo alike)
@@ -229,7 +232,8 @@ result with a TTL instead of hitting the DB every request. DB- and framework-neu
 
 - **Cache-aside** pattern: check cache → miss → query DB → store in cache.
 - **Invalidate on write** when the underlying data changes.
-- Always set a **TTL**; namespace keys (`coupons:published:*`).
+- Always set a **TTL**; namespace keys (`coupons:published:*`). In this repo every key name comes
+  from a builder in `src/utils/redisKeys.ts` ([project-structure.md §13F](project-structure.md)).
 - Layers (use what fits): in-process cache → **Redis/Memcached** (shared) → CDN/reverse
   proxy for public GETs. NestJS has a built-in `CacheModule`; Express uses a Redis client.
 - In **microservices**, prefer a *shared* cache (Redis) so instances stay consistent.
@@ -260,6 +264,37 @@ result with a TTL instead of hitting the DB every request. DB- and framework-neu
 
 ---
 
+## 11. This project's hot path — authentication
+
+The rule is CLAUDE.md hard rule 7; this section shows where the code keeps it.
+
+**Authenticating a request costs one Redis round trip (GET + TTL in one MULTI on the session key)
+and no database call. It writes only when less than half the session TTL remains (an EXPIRE on the
+session key and its user index, fire-and-forget).**
+
+- The read: `findBySid` (`auth/models/Session/repo.ts:97-101`) calls `getKeyWithTtl`, one
+  `MULTI` with `GET` and `TTL` on `sess:<sid>` (`utils/redisKeys.ts:71-76`).
+- The user's identity, roles and display fields come from that record
+  (`auth/middlewares/authenticate.ts:19-28`), never from MongoDB.
+- The write: `touchTtl` (`auth/services/session.service.ts:72-81`) is not awaited. It calls
+  `refreshIfStale`, which returns early unless less than half the TTL remains
+  (`auth/models/Session/repo.ts:19,131`), then runs `EXPIRE` on the session key and extends the
+  user index (`auth/models/Session/repo.ts:135-136`).
+- The refresh is a pure `EXPIRE`, not a rewrite of the record: re-saving the copy read at the start
+  of the request would undo a role switch that landed in between (`auth/models/Session/repo.ts:133-134`).
+  For the same reason `lastSeenAt` is set at login and role switch only
+  (`auth/services/session.service.ts:141,239`), not per request.
+
+**Real world:** an admin dashboard polls ten endpoints every few seconds. Each poll costs one Redis
+round trip for authentication. A `lastSeenAt` write added to `authenticate` would turn every one of
+those reads into a database write, and the database becomes the bottleneck before the API does.
+
+Separately, the global rate limiter runs on every request that reaches `server.ts:95` — `INCR` +
+`EXPIRE NX` + `TTL` in one `MULTI` (`utils/redisKeys.ts:133-140`). That cost belongs to the limiter,
+not to authentication ([../platform/rate-limiting.md](../platform/rate-limiting.md)).
+
+---
+
 ## Quick Reference — the winners' checklist (any DB / ORM / framework)
 
 - [ ] No app-side loop doing filter/join/sum/sort the DB could do.
@@ -274,6 +309,7 @@ result with a TTL instead of hitting the DB every request. DB- and framework-neu
 - [ ] Hot reads cached (shared cache for multi-instance/microservices) with TTL + invalidation.
 - [ ] Connection **pooled** once; reads can use replicas; payloads compressed.
 - [ ] Plan read/measured before declaring "scalable"; tracing in place for microservices.
+- [ ] Authentication still costs one Redis round trip and no database call (§11).
 
 ---
 

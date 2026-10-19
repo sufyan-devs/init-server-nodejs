@@ -3,8 +3,9 @@ import { promisify } from 'node:util';
 import type { Request, Response, NextFunction } from 'express';
 import { envConfig } from '@config/env';
 import ApiError from '@utils/apiError';
-import AuthErrors from '@constants/authErrors';
-import { getRoleCookieName, getCookieOptions, readCookie } from '@utils/cookieHelper';
+import AUTH_ERRORS from '@constants/authErrors';
+import { PORTAL, portalCookieName, getRoleCookieName, getCookieOptions, readCookie } from '@utils/cookieHelper';
+import type { Portal } from '@utils/cookieHelper';
 import { sidFromToken } from '@auth/services/session.service';
 
 const randomBytesAsync = promisify(randomBytes);
@@ -16,8 +17,6 @@ const TOKEN_SEPARATOR = '.';
 const TOKEN_PART_COUNT = 2;
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-const HTTP_FORBIDDEN = 403;
 
 // Binding the token to the sid defends against cookie *injection*, not reading: a sibling
 // subdomain or a MITM can plant a matching cookie/header pair, but only for its own sid.
@@ -32,12 +31,12 @@ const csrfCookieName = (sessionCookieName: string): string =>
 const issueCsrfToken = async (
   res: Response,
   sid: string,
-  portalRole?: string,
+  roleCode: string,
 ): Promise<string> => {
   const random = (await randomBytesAsync(RANDOM_BYTES)).toString('base64url');
   const token = `${random}${TOKEN_SEPARATOR}${sign(sid, random)}`;
 
-  res.cookie(csrfCookieName(getRoleCookieName(portalRole)), token, {
+  res.cookie(csrfCookieName(getRoleCookieName(roleCode)), token, {
     ...getCookieOptions(),
     httpOnly: false,
     signed: false,
@@ -56,7 +55,10 @@ const signaturesMatch = (candidate: string, expected: string): boolean => {
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
-const PORTAL_SEGMENTS = new Set(['admin', 'vendor', 'associate', 'customer']);
+const PORTAL_SEGMENTS: ReadonlySet<string> = new Set(Object.values(PORTAL));
+
+const isPortal = (segment: string | undefined): segment is Portal =>
+  segment !== undefined && PORTAL_SEGMENTS.has(segment);
 
 // The portal comes from the URL, not the cookie jar: mounted router-wide this runs before
 // `authenticate`, so `req.sessionId` is unset and jar order would decide which portal wins.
@@ -64,8 +66,8 @@ const currentSession = (req: Request): { sid: string; cookieName: string } | und
   const base = envConfig.SESSION.COOKIE.NAME;
 
   const segment = req.path.split('/')[1];
-  if (segment && PORTAL_SEGMENTS.has(segment)) {
-    const cookieName = `${base}_${segment}`;
+  if (isPortal(segment)) {
+    const cookieName = portalCookieName(segment);
     const value = readCookie(req, cookieName);
     return typeof value === 'string' ? { sid: sidFromToken(value), cookieName } : undefined;
   }
@@ -90,17 +92,17 @@ const verifyCsrf = (req: Request, _res: Response, next: NextFunction): void => {
     : undefined;
 
   if (!cookie || !header || !session) {
-    return next(ApiError.fromAuthError(HTTP_FORBIDDEN, AuthErrors.CSRF_MISSING));
+    return next(ApiError.fromAuthError(AUTH_ERRORS.CSRF_MISSING));
   }
 
   const [random] = cookie.split(TOKEN_SEPARATOR);
   const parts = header.split(TOKEN_SEPARATOR);
 
   if (!random || parts.length !== TOKEN_PART_COUNT) {
-    return next(ApiError.fromAuthError(HTTP_FORBIDDEN, AuthErrors.CSRF_INVALID));
+    return next(ApiError.fromAuthError(AUTH_ERRORS.CSRF_INVALID));
   }
   if (!signaturesMatch(parts[1], sign(session.sid, random))) {
-    return next(ApiError.fromAuthError(HTTP_FORBIDDEN, AuthErrors.CSRF_INVALID));
+    return next(ApiError.fromAuthError(AUTH_ERRORS.CSRF_INVALID));
   }
 
   next();

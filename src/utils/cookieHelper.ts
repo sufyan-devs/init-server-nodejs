@@ -3,26 +3,32 @@ import { envConfig } from '@config/env';
 
 const BASE_COOKIE_NAME: string = envConfig.SESSION.COOKIE.NAME;
 
-const ROLE_COOKIE_MAP: Record<string, string> = {
-  SUPER_ADMIN: `${BASE_COOKIE_NAME}_admin`,
-  ADMIN: `${BASE_COOKIE_NAME}_admin`,
-  VENDOR: `${BASE_COOKIE_NAME}_vendor`,
-  BUSINESS_ASSOCIATE: `${BASE_COOKIE_NAME}_associate`,
-  CUSTOMER: `${BASE_COOKIE_NAME}_customer`,
+const PORTAL = {
+  ADMIN: 'admin',
+  VENDOR: 'vendor',
+  ASSOCIATE: 'associate',
+  CUSTOMER: 'customer',
+} as const;
+
+export type Portal = (typeof PORTAL)[keyof typeof PORTAL];
+
+const ROLE_PORTAL: Record<string, Portal> = {
+  SUPER_ADMIN: PORTAL.ADMIN,
+  ADMIN: PORTAL.ADMIN,
+  VENDOR: PORTAL.VENDOR,
+  BUSINESS_ASSOCIATE: PORTAL.ASSOCIATE,
+  CUSTOMER: PORTAL.CUSTOMER,
 };
 
 const RESET_COOKIE_NAME = `${BASE_COOKIE_NAME}_reset`;
 
-const ALL_SESSION_COOKIES = [
-  ROLE_COOKIE_MAP.ADMIN,
-  ROLE_COOKIE_MAP.VENDOR,
-  ROLE_COOKIE_MAP.BUSINESS_ASSOCIATE,
-  ROLE_COOKIE_MAP.CUSTOMER,
-];
+const portalOf = (roleCode: string): Portal | undefined => ROLE_PORTAL[roleCode];
 
-const getRoleCookieName = (role?: string): string => {
-  if (role && ROLE_COOKIE_MAP[role]) return ROLE_COOKIE_MAP[role];
-  return BASE_COOKIE_NAME;
+const portalCookieName = (portal: Portal): string => `${BASE_COOKIE_NAME}_${portal}`;
+
+const getRoleCookieName = (roleCode: string): string => {
+  const portal = portalOf(roleCode);
+  return portal ? portalCookieName(portal) : BASE_COOKIE_NAME;
 };
 
 const getCookieOptions = (): CookieOptions => ({
@@ -35,12 +41,12 @@ const getCookieOptions = (): CookieOptions => ({
   ...(envConfig.SESSION.COOKIE.DOMAIN ? { domain: envConfig.SESSION.COOKIE.DOMAIN } : {}),
 });
 
-const setSessionCookie = (res: Response, token: string, role?: string): void => {
-  res.cookie(getRoleCookieName(role), token, getCookieOptions());
+const setSessionCookie = (res: Response, token: string, roleCode: string): void => {
+  res.cookie(getRoleCookieName(roleCode), token, getCookieOptions());
 };
 
-const clearSessionCookie = (res: Response, role?: string): void => {
-  res.cookie(getRoleCookieName(role), '', { ...getCookieOptions(), maxAge: 0 });
+const clearSessionCookie = (res: Response, roleCode: string): void => {
+  res.cookie(getRoleCookieName(roleCode), '', { ...getCookieOptions(), maxAge: 0 });
 };
 
 const setResetCookie = (res: Response, token: string): void => {
@@ -55,38 +61,31 @@ const clearResetCookie = (res: Response): void => {
 // cookie stamped only at login expires under a user whose session is still alive.
 const refreshSessionCookie = (
   res: Response,
-  cookieName: string,
   token: string,
+  roleCode: string,
   maxAgeMs: number,
 ): void => {
   if (maxAgeMs <= 0) return;
-  res.cookie(cookieName, token, { ...getCookieOptions(), maxAge: maxAgeMs });
+  res.cookie(getRoleCookieName(roleCode), token, { ...getCookieOptions(), maxAge: maxAgeMs });
 };
 
-interface SessionTokenResult {
-  token: string;
-  cookieName: string;
-}
-
-// Signed first: cookie-parser puts a verified cookie in signedCookies and leaves the
-// unverified original in cookies, so reading cookies first would accept a forged value.
-const readCookie = (req: Request, name: string): string | undefined =>
-  (req.signedCookies?.[name] ?? req.cookies?.[name]) as string | undefined;
-
-const getSessionToken = (req: Request, role?: string): SessionTokenResult | null => {
-  const names = role ? [getRoleCookieName(role)] : [...ALL_SESSION_COOKIES, BASE_COOKIE_NAME];
-
-  for (const cookieName of names) {
-    const token = readCookie(req, cookieName);
-    if (token) return { token, cookieName };
-  }
-  return null;
+// signedCookies only: cookie-parser leaves an unsigned or tampered value in req.cookies,
+// and these cookies are always written signed.
+const readCookie = (req: Request, name: string): string | undefined => {
+  const value: unknown = req.signedCookies?.[name];
+  return typeof value === 'string' ? value : undefined;
 };
+
+const getSessionToken = (req: Request, roleCode: string): string | undefined =>
+  readCookie(req, getRoleCookieName(roleCode)) || undefined;
 
 const getResetToken = (req: Request): string | null =>
   readCookie(req, RESET_COOKIE_NAME) ?? null;
 
 export {
+  PORTAL,
+  portalOf,
+  portalCookieName,
   getRoleCookieName,
   getCookieOptions,
   setSessionCookie,

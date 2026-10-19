@@ -33,5 +33,4 @@ export interface IRole extends Document {
 
 export interface IRoleModel extends Model<IRole> {
   findByCode(code: string): Promise<IRole | null>;
-  getSignupRoles(): Promise<IRole[]>;
 }

@@ -1,4 +1,7 @@
 import type { Router } from 'express';
+import './models/Coupon';
+import './models/CouponPurchase';
+import './models/CouponRedeem';
 import adminCouponRoutes from './routes/admin/coupon';
 import vendorCouponRoutes from './routes/vendor/coupon';
 import customerCouponRoutes from './routes/customer/coupon';

@@ -1,10 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '@utils/logger';
-import { getClientIp } from '@utils/clientIp';
 
 const httpLoggerMiddleware = (req: Request, res: Response, next: NextFunction): void => {
   const start: number = Date.now();
-  const clientIp: string = getClientIp(req);
+  const clientIp: string = req.ip ?? '';
 
   res.on('finish', () => {
     const duration: number = Date.now() - start;

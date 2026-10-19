@@ -15,15 +15,23 @@ If given a path, check that page. Otherwise, find the pages at risk:
 
 ```bash
 git diff HEAD --stat -- src/
+git ls-files --others --exclude-standard src
 ```
 
 Map changed source files to the pages that describe them. The mapping today:
 
 | Source | Described in |
 |---|---|
-| `src/middlewares/authenticate.ts`, `src/modules/auth/**`, `src/utils/cookieHelper.ts`, `src/modules/user/models/**` | `docs/modules/auth/legacy-migration.md` |
-| module layout, aliases, `src/routes/index.ts` | `docs/standards/project-structure.md` |
-| anything under `src/` | `CLAUDE.md` (stack, status, commands) |
+| `src/modules/auth/**` (incl. `middlewares/authenticate.ts`, `middlewares/csrf.ts`), `src/utils/cookieHelper.ts`, `src/constants/authErrors.ts`, `src/modules/user/models/**` | `docs/modules/auth/*.md` — `README.md`, `flows.md`, `security.md`, `data-model.md`, `authorization.md`, `legacy-migration.md` |
+| `src/middlewares/rateLimit.ts`, `src/modules/auth/routes/shared/limits.ts` | `docs/platform/rate-limiting.md` |
+| `src/utils/redisClient.ts`, `src/utils/redisKeys.ts`, `src/modules/auth/models/Session/**` | `docs/platform/redis.md` |
+| `src/config/env.ts`, any module `config.ts`, `.env.example` | `docs/platform/configuration.md` |
+| `src/config/database.ts`, any `models/**` | `docs/platform/database.md` |
+| `src/server.ts`, `src/routes/index.ts`, `src/middlewares/**` | `docs/platform/README.md` (request lifecycle) |
+| module layout, new/deleted files, aliases (`tsconfig.json`), cross-module imports, `src/routes/index.ts` | `docs/standards/project-structure.md` (§7 aliases, §11 tree, §12 dependency map) |
+| `src/utils/**`, `eslint.config.js`, `tsconfig.json` compiler options | `docs/standards/coding-practices.md` |
+| the auth hot path (`authenticate.ts`, `session.service.ts`, `Session/repo.ts`) | `docs/standards/performance-practices.md` §11 |
+| anything under `src/` | `CLAUDE.md` (stack, status, commands, hard rules) |
 
 ## 2. Verify every factual claim
 
@@ -60,3 +68,6 @@ status lines, and rule violations. Fix them if the user asks; when you do, updat
 verified-on date in the page's status line to today.
 
 If everything checks out, say so plainly and name what you verified — a vague pass is not useful.
+
+Never install, build or run `npx` to check a claim; read the code. `npm run type-check` and
+`npm run lint:fix` are the only commands of that kind this repo allows.

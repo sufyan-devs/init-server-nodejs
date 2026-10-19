@@ -2,11 +2,8 @@ import Coupon from '@coupon/models/Coupon';
 import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
 import response from '@utils/response';
-import {
-  toObjectId,
-  isValidObjectId,
-  couponDecimalFields,
-} from '@utils/mongoHelper';
+import { toObjectId, isValidObjectId } from '@utils/mongoHelper';
+import { couponDecimalFields } from '@coupon/helpers/mongo';
 
 const lookupStages: any[] = [
   {

@@ -2,12 +2,8 @@ import Coupon, { COUPON_STATUS } from '@coupon/models/Coupon';
 import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
 import response from '@utils/response';
-import {
-  toObjectId,
-  isValidObjectId,
-  couponDecimalFields,
-  todayDateRange,
-} from '@utils/mongoHelper';
+import { toObjectId, isValidObjectId } from '@utils/mongoHelper';
+import { couponDecimalFields, todayDateRange } from '@coupon/helpers/mongo';
 
 const publicProject = {
   __v: 0,

@@ -3,18 +3,13 @@ import CouponPurchase from '@coupon/models/CouponPurchase';
 import CouponRedeem, { REDEEM_STATUS } from '@coupon/models/CouponRedeem';
 import Referral from '@referral/models/Referral';
 import User from '@user/models/User';
-import { sendEmail, templates } from '@notification/email';
+import { sendEmail } from '@notification/index';
+import * as templates from '@coupon/helpers/emailTemplates';
 import catchAsync from '@utils/catchAsync';
 import ApiError from '@utils/apiError';
 import response from '@utils/response';
-import {
-  toObjectId,
-  isValidObjectId,
-  couponDecimalFields,
-  getDecimal,
-  todayDateRange,
-  formatDate,
-} from '@utils/mongoHelper';
+import { toObjectId, isValidObjectId } from '@utils/mongoHelper';
+import { couponDecimalFields, getDecimal, todayDateRange, formatDate } from '@coupon/helpers/mongo';
 const vendorSanitize = (coupon: any) => {
   const obj = coupon.toJSON ? coupon.toJSON() : { ...coupon };
   delete obj.sellingPrice;
@@ -35,7 +30,7 @@ const create = catchAsync(async (req, res) => {
     redeemLimit,
     startDate,
     endDate,
-  } = req.body;
+  } = req.body ?? {};
 
   if (redeemLimit?.total != null && redeemLimit?.perUser != null) {
     if (redeemLimit.perUser > redeemLimit.total) {
@@ -282,7 +277,7 @@ const update = catchAsync(async (req, res) => {
     );
   }
 
-  const disallowed = Object.keys(req.body).filter(
+  const disallowed = Object.keys(req.body ?? {}).filter(
     (f) => !allowedFields.includes(f),
   );
   if (disallowed.length) {
@@ -291,7 +286,7 @@ const update = catchAsync(async (req, res) => {
     );
   }
 
-  if (req.body.redeemLimit) {
+  if (req.body?.redeemLimit) {
     const effectiveTotal =
       req.body.redeemLimit.total ?? coupon.redeemLimit?.total;
     const effectivePerUser =
@@ -310,7 +305,7 @@ const update = catchAsync(async (req, res) => {
     }
   }
 
-  if (req.body.code) {
+  if (req.body?.code) {
     const duplicate = await Coupon.findOne({
       userId: req.user!._id,
       code: req.body.code.toUpperCase(),
@@ -321,7 +316,7 @@ const update = catchAsync(async (req, res) => {
       throw ApiError.conflict("You already have a coupon with this code");
     }
   }
-  coupon.set(req.body);
+  coupon.set(req.body ?? {});
 
   await coupon.save();
 
@@ -408,7 +403,7 @@ const remove = catchAsync(async (req, res) => {
 });
 
 const verifyRedemptionCode = catchAsync(async (req, res) => {
-  const { redemptionCode, quantity } = req.body;
+  const { redemptionCode, quantity } = req.body ?? {};
 
   if (!redemptionCode || !quantity || quantity < 1) {
     throw ApiError.badRequest(
@@ -539,7 +534,7 @@ const verifyRedemptionCode = catchAsync(async (req, res) => {
 });
 
 const verifyRedemptionOtp = catchAsync(async (req, res) => {
-  const { redeemId, otp } = req.body;
+  const { redeemId, otp } = req.body ?? {};
 
   if (!redeemId || !otp) {
     throw ApiError.badRequest("Redeem ID and OTP are required");
@@ -598,7 +593,7 @@ const verifyRedemptionOtp = catchAsync(async (req, res) => {
 });
 
 const confirmRedemption = catchAsync(async (req, res) => {
-  const { redeemId, orderReference } = req.body;
+  const { redeemId, orderReference } = req.body ?? {};
 
   if (!redeemId) {
     throw ApiError.badRequest("Redeem ID is required");
@@ -693,7 +688,7 @@ const confirmRedemption = catchAsync(async (req, res) => {
 });
 
 const resendRedemptionOtp = catchAsync(async (req, res) => {
-  const { redeemId } = req.body;
+  const { redeemId } = req.body ?? {};
 
   if (!redeemId) {
     throw ApiError.badRequest("Redeem ID is required");

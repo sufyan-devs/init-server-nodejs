@@ -33,7 +33,15 @@ const validate = ({ body, params, query }: RequestSchemas) => {
     try {
       if (body) req.body = parse(body, req.body);
       if (params) replaceInPlace(req.params as Record<string, unknown>, parse(params, req.params));
-      if (query) replaceInPlace(req.query as unknown as Record<string, unknown>, parse(query, req.query));
+      // Express 5 makes req.query a getter that re-parses on every read, so mutating it is lost.
+      if (query) {
+        Object.defineProperty(req, 'query', {
+          value: parse(query, req.query),
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      }
     } catch (error: unknown) {
       return next(error);
     }

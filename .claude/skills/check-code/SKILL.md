@@ -9,7 +9,8 @@ Audit against `docs/standards/coding-practices.md`, **then fix what you find.** 
 report-only: reporting a violation and leaving it in the code is a failed run.
 
 ```
-git diff HEAD --stat        # scope, if no paths were given
+git diff HEAD --stat                        # scope, if no paths were given
+git ls-files --others --exclude-standard src   # new files the diff does not show
 ```
 
 ## 1. Measure comments first — mechanically, not by eye
@@ -18,7 +19,7 @@ Comment violations are the ones that keep coming back, and they are measurable, 
 before reading anything:
 
 ```bash
-for f in $(git diff HEAD --name-only -- '*.ts'); do node -e "
+for f in $(git diff HEAD --name-only --diff-filter=d -- '*.ts'; git ls-files --others --exclude-standard -- '*.ts'); do node -e "
 const l=require('fs').readFileSync('$f','utf8').split('\n').filter(x=>x.trim());
 const c=l.filter(x=>/^\s*(\/\/|\/\*|\*)/.test(x)).length;
 const p=100*c/l.length;
@@ -52,8 +53,8 @@ naming, `===`/`??`, guard clauses). Pass it the file list and any concern the us
 
 Give it the hard constraints verbatim, or it will install something to check its work:
 
-> NEVER run npm install, npm ci, npx, or add any package. NEVER run npm run build.
-> Only `npm run type-check` and `npm run lint:fix` may be run.
+> NEVER run npm install, npm ci, npx (in any form), or add any package. NEVER run npm run build.
+> You may run `npm run type-check`. Do NOT run `npm run lint:fix` — it edits files; the caller runs it.
 
 ## 3. Apply, then verify
 
@@ -64,6 +65,8 @@ must be a stated decision, never an oversight.
 npm run type-check
 npm run lint:fix
 ```
+
+These two are the only build-ish commands this skill runs (CLAUDE.md hard rule 0).
 
 Then re-measure the density from step 1 and show the before/after. If a number is still over 8%,
 either fix it or justify it in one line.

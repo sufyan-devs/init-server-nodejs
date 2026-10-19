@@ -2,7 +2,6 @@ import sessionService from '@auth/services/session.service';
 import { record, AUDIT_ACTION, AUDIT_OUTCOME } from '@audit/index';
 import catchAsync from '@utils/catchAsync';
 import response from '@utils/response';
-import { getClientIp } from '@utils/clientIp';
 
 export const listSessions = catchAsync(async (req, res) => {
   const sessions = await sessionService.listUserSessions(
@@ -22,9 +21,9 @@ export const revokeSessionById = catchAsync(async (req, res) => {
     outcome: AUDIT_OUTCOME.SUCCESS,
     resource: 'session',
     resourceId: sid,
-    ip: getClientIp(req),
+    ip: req.ip ?? '',
     userAgent: req.get('User-Agent'),
   });
 
-  return response.success(res, { message: 'Session revoked', sid });
+  return response.success(res, { sid }, 200, 'Session revoked');
 });

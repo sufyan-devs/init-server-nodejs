@@ -2,11 +2,15 @@ import type { Router } from 'express';
 import { hashPassword, assertPasswordAllowed } from './services/password.service';
 import sessionService, { toSessionUser } from './services/session.service';
 import { SESSION_REVOKE_REASON } from './models/Session';
-import { register as registerUser } from './controllers/shared/authHelper';
+import { register as registerUser } from './services/auth.service';
+import { authenticate, authorizeRoles } from './middlewares/authenticate';
+import { verifyCsrf } from './middlewares/csrf';
+import { setSignupHook } from './signupHooks';
 import adminAuthRoutes from './routes/admin/auth';
 import vendorAuthRoutes from './routes/vendor/auth';
 import associateAuthRoutes from './routes/associate/auth';
 import customerAuthRoutes from './routes/customer/auth';
+import { PORTAL } from '@utils/cookieHelper';
 
 interface SessionUserSource {
   email: string;
@@ -25,10 +29,10 @@ const syncSessionUser = (userId: string, user: SessionUserSource): Promise<void>
   sessionService.syncUser(userId, toSessionUser(user));
 
 const register = (router: Router): void => {
-  router.use('/admin/auth', adminAuthRoutes);
-  router.use('/vendor/auth', vendorAuthRoutes);
-  router.use('/associate/auth', associateAuthRoutes);
-  router.use('/customer/auth', customerAuthRoutes);
+  router.use(`/${PORTAL.ADMIN}/auth`, adminAuthRoutes);
+  router.use(`/${PORTAL.VENDOR}/auth`, vendorAuthRoutes);
+  router.use(`/${PORTAL.ASSOCIATE}/auth`, associateAuthRoutes);
+  router.use(`/${PORTAL.CUSTOMER}/auth`, customerAuthRoutes);
 };
 
 export {
@@ -38,4 +42,9 @@ export {
   assertPasswordAllowed,
   revokeUserSessions,
   syncSessionUser,
+  authenticate,
+  authorizeRoles,
+  verifyCsrf,
+  setSignupHook,
 };
+export type { SignupHook } from './signupHooks';

@@ -2,28 +2,21 @@ import type { AuthError } from '@constants/authErrors';
 
 interface ApiErrorOptions {
   code?: string;
-  isOperational?: boolean;
 }
 
 class ApiError extends Error {
   public readonly statusCode: number;
   public readonly code: string | null;
-  public readonly isOperational: boolean;
 
-  constructor(statusCode: number, message: string, { code, isOperational = true }: ApiErrorOptions = {}) {
+  constructor(statusCode: number, message: string, { code }: ApiErrorOptions = {}) {
     super(message);
     this.statusCode = statusCode;
     this.code = code || null;
-    this.isOperational = isOperational;
     Error.captureStackTrace(this, this.constructor);
   }
 
   static badRequest(message: string = 'Bad Request', code?: string): ApiError {
     return new ApiError(400, message, { code });
-  }
-
-  static unauthorized(message: string = 'Unauthorized', code?: string): ApiError {
-    return new ApiError(401, message, { code });
   }
 
   static forbidden(message: string = 'Forbidden', code?: string): ApiError {
@@ -39,11 +32,11 @@ class ApiError extends Error {
   }
 
   static internal(message: string = 'Internal Server Error', code?: string): ApiError {
-    return new ApiError(500, message, { code, isOperational: false });
+    return new ApiError(500, message, { code });
   }
 
-  static fromAuthError(statusCode: number, authError: AuthError): ApiError {
-    return new ApiError(statusCode, authError.message, { code: authError.code });
+  static fromAuthError(authError: AuthError): ApiError {
+    return new ApiError(authError.status, authError.message, { code: authError.code });
   }
 }
 
